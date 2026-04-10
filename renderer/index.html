@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org" />
+    <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FluxDev | Proyectos Locales</title>
+    <link rel="stylesheet" href="./styles.css" />
+</head>
+
+<body>
+    <main class="layout">
+        <section class="panel panel-form">
+            <header>
+                <div class="brand-row">
+                    <img src="../public/FluxLogo.png" alt="FluxDev" class="brand-logo" />
+                    <span class="brand-name">FluxDev</span>
+                </div>
+                <h1 id="form-title">Agrega proyectos locales</h1>
+                <p id="form-subtitle" class="subtitle">Guarda nombre, ruta, varios comandos e icono para ejecutar mas rapido.</p>
+            </header>
+
+            <form id="project-form">
+                <label for="name">Nombre del proyecto</label>
+                <input id="name" name="name" type="text" placeholder="Mi App" required />
+
+                <label for="path">Ruta local</label>
+                <div class="field-with-action">
+                    <input id="path" name="path" type="text" placeholder="C:\\proyectos\\mi-app" required />
+                    <button type="button" id="browse-path">Buscar</button>
+                </div>
+
+                <label for="commands">Comandos (uno por linea)</label>
+                <textarea id="commands" name="commands" rows="4" placeholder="npm install&#10;npm run dev" required></textarea>
+
+                <label for="icon">Icono (opcional)</label>
+                <div class="field-with-action">
+                    <input id="icon" name="icon" type="text" placeholder="https://cdn.jsdelivr.net/... o devicon:react" />
+                    <button type="button" id="browse-icon">Buscar</button>
+                </div>
+                <p class="input-hint">Atajos: <strong>devicon:react</strong>, <strong>devicon:javascript</strong>, <strong>simple:spring</strong>.</p>
+                <div class="icon-presets" role="group" aria-label="Presets de iconos">
+                    <button type="button" class="icon-template" data-template="devicon:javascript">JS</button>
+                    <button type="button" class="icon-template" data-template="devicon:react">React</button>
+                    <button type="button" class="icon-template" data-template="devicon:nodejs">Node</button>
+                    <button type="button" class="icon-template" data-template="simple:spring">Spring</button>
+                </div>
+
+                <div class="form-actions">
+                    <button id="submit-project" class="submit" type="submit">Guardar proyecto</button>
+                    <button id="cancel-edit" type="button" hidden>Cancelar edicion</button>
+                </div>
+                <p id="feedback" class="feedback" data-type="info"></p>
+            </form>
+        </section>
+
+        <section class="panel panel-list">
+            <header>
+                <h2>Proyectos guardados</h2>
+                <p id="runtime-info"></p>
+            </header>
+            <div class="tabs" role="tablist" aria-label="Vistas de proyectos">
+                <button type="button" class="tab-button is-active" data-tab="projects" role="tab" aria-selected="true">Proyectos</button>
+                <button type="button" class="tab-button" data-tab="processes" role="tab" aria-selected="false">Procesos</button>
+            </div>
+            <section id="projects-list" class="projects-list tab-panel"></section>
+            <section id="processes-view" class="processes-view tab-panel is-hidden"></section>
+        </section>
+    </main>
+</body>
+<script src="./app.js"></script>
+
+</html>
