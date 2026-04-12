@@ -1,18 +1,22 @@
+const fs = require('node:fs');
 const path = require('node:path');
 const { FusesPlugin } = require('@electron-forge/plugin-fuses');
 const { FuseV1Options, FuseVersion } = require('@electron/fuses');
 
+const windowsIconPath = path.join(__dirname, 'public', 'FluxLogo.ico');
+const hasWindowsIcon = fs.existsSync(windowsIconPath);
+
 module.exports = {
   packagerConfig: {
     asar: true,
-    icon: path.join(__dirname, 'public', 'FluxLogo.png'),
+    icon: hasWindowsIcon ? windowsIconPath : undefined,
   },
   rebuildConfig: {},
   makers: [
     {
       name: '@electron-forge/maker-squirrel',
       config: {
-        setupIcon: path.join(__dirname, 'public', 'FluxLogo.png'),
+        setupIcon: hasWindowsIcon ? windowsIconPath : undefined,
       },
     },
     {
