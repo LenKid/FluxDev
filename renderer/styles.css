@@ -78,6 +78,23 @@ body {
   box-shadow: 0 16px 35px rgba(0, 0, 0, 0.4);
 }
 
+.panel-form {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.panel-form header {
+  flex: 0 0 auto;
+}
+
+.panel-form form {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
 .eyebrow {
   margin: 0;
   color: var(--primary);

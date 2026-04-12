@@ -122,6 +122,27 @@ const readProjects = async () => {
     return Array.isArray(projects) ? projects : []
 }
 
+const hasProjectWithPath = async (projectPath, excludeProjectId = '') => {
+    const normalizedPath = toPathKey(projectPath)
+    const projects = await readProjects()
+
+    return projects.some((project) => {
+        if (excludeProjectId && project.id === excludeProjectId) {
+            return false
+        }
+
+        return toPathKey(project.path) === normalizedPath
+    })
+}
+
+const assertUniqueProjectPath = async (projectPath, excludeProjectId = '') => {
+    const duplicateExists = await hasProjectWithPath(projectPath, excludeProjectId)
+
+    if (duplicateExists) {
+        throw new Error('Ya existe un proyecto agregado con esa ruta.')
+    }
+}
+
 const saveProjects = async (projects) => {
     store.set('projects', projects)
 }
@@ -132,26 +153,36 @@ const sanitizeImportedProjects = (payloadProjects) => {
     }
 
     const seenIds = new Set()
+    const seenPaths = new Set()
+    const normalizedProjects = []
 
-    return payloadProjects.map((rawProject, index) => {
+    payloadProjects.forEach((rawProject, index) => {
         const validated = validateProjectInput(rawProject)
         const createdAt = String(rawProject?.createdAt || new Date().toISOString())
         const updatedAt = rawProject?.updatedAt ? String(rawProject.updatedAt) : undefined
         let id = String(rawProject?.id || `imported-${Date.now().toString(36)}-${index}`)
+        const normalizedPath = toPathKey(validated.path)
 
-        if (!id || seenIds.has(id)) {
+        if (seenPaths.has(normalizedPath)) {
+            return
+        }
+
+        if (seenIds.has(id) || seenPaths.has(normalizedPath)) {
             id = `imported-${Date.now().toString(36)}-${index}`
         }
 
         seenIds.add(id)
+        seenPaths.add(normalizedPath)
 
-        return {
+        normalizedProjects.push({
             id,
             ...validated,
             createdAt,
             updatedAt
-        }
+        })
     })
+
+    return normalizedProjects
 }
 
 const exportProjectsToFile = async () => {
@@ -861,13 +892,104 @@ const getGitStatusForProject = async (projectId) => {
 
 const guessCommandsFromPackageJson = (packageJson) => {
     const scripts = packageJson?.scripts || {}
+    const dependencyCount = Object.keys(packageJson?.dependencies || {}).length + Object.keys(packageJson?.devDependencies || {}).length
+    const scriptNames = Object.keys(scripts).filter((scriptName) => typeof scripts[scriptName] === 'string')
 
-    if (typeof scripts.dev === 'string') {
-        return ['npm install', 'npm run dev']
+    const preferredEntryScriptNames = ['dev', 'start', 'serve', 'preview', 'server', 'watch']
+    const selectedScriptNames = []
+
+    const pushSelectedScript = (scriptName) => {
+        if (scriptName && !selectedScriptNames.includes(scriptName)) {
+            selectedScriptNames.push(scriptName)
+        }
     }
 
-    if (typeof scripts.start === 'string') {
-        return ['npm install', 'npm start']
+    preferredEntryScriptNames.forEach((scriptName) => {
+        if (scriptNames.includes(scriptName)) {
+            pushSelectedScript(scriptName)
+        }
+    })
+
+    if (selectedScriptNames.length === 0) {
+        const fallbackScriptNames = scriptNames.filter((scriptName) => {
+            return !scriptName.startsWith('pre')
+                && !scriptName.startsWith('post')
+                && scriptName !== 'test'
+                && scriptName !== 'lint'
+                && scriptName !== 'format'
+                && scriptName !== 'check'
+        })
+
+        fallbackScriptNames.forEach((scriptName) => {
+            if (selectedScriptNames.length < 2) {
+                pushSelectedScript(scriptName)
+            }
+        })
+    }
+
+    const primaryScriptName = selectedScriptNames[0] || scriptNames.find((scriptName) => !scriptName.startsWith('pre') && !scriptName.startsWith('post'))
+
+    const commands = []
+
+    if (dependencyCount > 0 || Object.keys(scripts).length > 0) {
+        commands.push('npm install')
+    }
+
+    if (primaryScriptName) {
+        commands.push(primaryScriptName === 'start' ? 'npm start' : `npm run ${primaryScriptName}`)
+
+        selectedScriptNames.slice(1, 2).forEach((scriptName) => {
+            commands.push(scriptName === 'start' ? 'npm start' : `npm run ${scriptName}`)
+        })
+
+        return commands
+    }
+
+    const dependencies = {
+        ...(packageJson?.dependencies || {}),
+        ...(packageJson?.devDependencies || {})
+    }
+
+    const has = (pkgName) => typeof dependencies[pkgName] === 'string'
+
+    if (has('next')) {
+        commands.push('npx next dev')
+        return commands
+    }
+
+    if (has('nuxt') || has('nuxt3')) {
+        commands.push('npx nuxt dev')
+        return commands
+    }
+
+    if (has('@angular/core')) {
+        commands.push('npx ng serve')
+        return commands
+    }
+
+    if (has('vite')) {
+        commands.push('npx vite')
+        return commands
+    }
+
+    if (has('astro')) {
+        commands.push('npx astro dev')
+        return commands
+    }
+
+    if (has('svelte') || has('@sveltejs/kit')) {
+        commands.push('npx svelte-kit dev')
+        return commands
+    }
+
+    if (has('react-scripts')) {
+        commands.push('npx react-scripts start')
+        return commands
+    }
+
+    if (has('nestjs') || has('@nestjs/core')) {
+        commands.push('npx nest start --watch')
+        return commands
     }
 
     return ['npm install']
@@ -931,7 +1053,7 @@ const collectDetectedProjects = async (rootPath) => {
             seenPaths.add(key)
             bucket.push({
                 path: folderPath,
-                name: String(parsed?.name || fallbackName).trim(),
+                name: String(fallbackName).trim(),
                 commands: guessCommandsFromPackageJson(parsed),
                 icon: detectFrameworkIcon(parsed)
             })
@@ -1016,9 +1138,19 @@ const autoDetectApplyProjects = async (selectedDetected) => {
     const projects = await readProjects()
     const knownPaths = new Set(projects.map((project) => toPathKey(project.path)))
     const now = Date.now()
+    const selectedPaths = new Set()
 
     const additions = normalizedSelection
-        .filter((project) => !knownPaths.has(toPathKey(project.path)))
+        .filter((project) => {
+            const normalizedPath = toPathKey(project.path)
+
+            if (knownPaths.has(normalizedPath) || selectedPaths.has(normalizedPath)) {
+                return false
+            }
+
+            selectedPaths.add(normalizedPath)
+            return true
+        })
         .map((project, index) => ({
             id: `${(now + index).toString(36)}-auto`,
             name: project.name,
@@ -1046,6 +1178,7 @@ const registerIpcHandlers = () => {
 
     ipcMain.handle('projects:add', async (_event, payload) => {
         const projectData = validateProjectInput(payload)
+        await assertUniqueProjectPath(projectData.path)
         const project = {
             id: Date.now().toString(36),
             ...projectData,
@@ -1073,6 +1206,7 @@ const registerIpcHandlers = () => {
         }
 
         const current = projects[index]
+        await assertUniqueProjectPath(projectData.path, current.id)
         const updatedProject = {
             ...current,
             ...projectData,
