@@ -1,160 +1,181 @@
 <!DOCTYPE html>
-<html>
+<html lang="es">
 
 <head>
     <meta charset="UTF-8" />
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org" />
     <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#06090d" />
     <title>FluxDev | Proyectos Locales</title>
     <link rel="stylesheet" href="./styles.css" />
     <link rel="stylesheet" href="../node_modules/xterm/css/xterm.css" />
 </head>
 
 <body>
-    <main class="layout">
-        <section class="panel panel-form">
-            <header>
-                <div class="brand-row">
-                    <img src="../public/FluxLogo.png" alt="FluxDev" class="brand-logo" />
-                    <span class="brand-name">FluxDev</span>
+    <a class="skip-link" href="#project-form">Saltar al formulario</a>
+    <div class="app-shell">
+        <header class="app-header">
+            <div class="brand-lockup">
+                <img src="../public/FluxLogo.png" alt="FluxDev" class="brand-logo" width="64" height="64" />
+                <div>
+                    <p class="eyebrow">Desktop Workspace</p>
+                    <h1 translate="no">FluxDev</h1>
+                    <p class="hero-copy">Centraliza proyectos locales, procesos, terminal y perfiles de entorno en una sola pantalla.</p>
                 </div>
-                <h1 id="form-title">Agrega proyectos locales</h1>
-                <p id="form-subtitle" class="subtitle">Guarda nombre, ruta, varios comandos e icono para ejecutar mas rapido.</p>
-            </header>
-
-            <form id="project-form">
-                <label for="name">Nombre del proyecto</label>
-                <input id="name" name="name" type="text" placeholder="Mi App" required />
-
-                <label for="path">Ruta local</label>
-                <div class="field-with-action">
-                    <input id="path" name="path" type="text" placeholder="C:\\proyectos\\mi-app" required />
-                    <button type="button" id="browse-path">Buscar</button>
-                </div>
-
-                <label for="commands">Comandos (uno por linea)</label>
-                <textarea id="commands" name="commands" rows="4" placeholder="npm install&#10;npm run dev" required></textarea>
-
-                <label for="icon">Icono (opcional)</label>
-                <div class="field-with-action">
-                    <input id="icon" name="icon" type="text" placeholder="https://cdn.jsdelivr.net/... o devicon:react" />
-                    <button type="button" id="browse-icon">Buscar</button>
-                </div>
-                <p class="input-hint">Atajos: <strong>devicon:react</strong>, <strong>devicon:javascript</strong>, <strong>devicon:spring</strong>, <strong>simple:nextdotjs</strong>, etc...</p>
-                <div class="icon-presets" role="group" aria-label="Presets de iconos">
-                    <button type="button" class="icon-template" data-template="devicon:javascript">JS</button>
-                    <button type="button" class="icon-template" data-template="devicon:react">React</button>
-                    <button type="button" class="icon-template" data-template="devicon:nodejs">Node</button>
-                    <button type="button" class="icon-template" data-template="devicon:spring">Spring</button>
-                    <button type="button" class="icon-template" data-template="devicon:nextjs">Next.js</button>
-                    <button type="button" class="icon-template" data-template="devicon:angular">Angular</button>
-                    <button type="button" class="icon-template" data-template="devicon:vuejs">Vue</button>
-                </div>
-
-                <div class="form-actions">
-                    <button id="submit-project" class="submit" type="submit">Guardar proyecto</button>
-                    <button id="cancel-edit" type="button" hidden>Cancelar edicion</button>
-                </div>
-                <div class="data-actions">
-                    <button id="auto-detect" type="button">Auto-detectar proyectos</button>
-                </div>
-                <p id="feedback" class="feedback" data-type="info"></p>
-            </form>
-        </section>
-
-        <section class="panel panel-list">
-            <header>
-                <h2>Proyectos guardados</h2>
-                <p id="runtime-info"></p>
-            </header>
-            <div class="project-filters">
-                <input id="project-search" type="text" placeholder="Filtrar por nombre o ruta" />
-                <label class="favorite-filter">
-                    <input id="favorites-only" type="checkbox" />
-                    Solo favoritos
-                </label>
             </div>
-            <div class="tabs" role="tablist" aria-label="Vistas de proyectos">
-                <button type="button" class="tab-button is-active" data-tab="projects" role="tab" aria-selected="true">Proyectos</button>
-                <button type="button" class="tab-button" data-tab="processes" role="tab" aria-selected="false">Procesos</button>
-                <button type="button" class="tab-button" data-tab="terminal" role="tab" aria-selected="false">Terminal</button>
-                <button type="button" class="tab-button" data-tab="settings" role="tab" aria-selected="false">Ajustes</button>
+            <div class="hero-chips" aria-label="Capacidades principales">
+                <span class="hero-chip">Auto-detección</span>
+                <span class="hero-chip">Multi-run</span>
+                <span class="hero-chip">Terminal integrada</span>
+                <span class="hero-chip">Git & perfiles</span>
             </div>
-            <section id="projects-list" class="projects-list tab-panel"></section>
-            <section id="processes-view" class="processes-view tab-panel is-hidden"></section>
-            <section id="terminal-view" class="terminal-view tab-panel is-hidden">
-                <div class="terminal-toolbar">
-                    <div class="terminal-select-group">
-                        <label for="terminal-project-select">Proyecto</label>
-                        <select id="terminal-project-select"></select>
+        </header>
+
+        <main class="layout">
+            <section class="panel panel-form">
+                <header>
+                    <p class="panel-eyebrow">Alta y edición</p>
+                    <h2 id="form-title">Agrega proyectos locales</h2>
+                    <p id="form-subtitle" class="subtitle">Guarda nombre, ruta, varios comandos e icono para ejecutar mas rapido.</p>
+                </header>
+
+                <form id="project-form">
+                    <label for="name">Nombre del proyecto</label>
+                    <input id="name" name="name" type="text" placeholder="Mi app…" autocomplete="off" required />
+
+                    <label for="path">Ruta local</label>
+                    <div class="field-with-action">
+                        <input id="path" name="path" type="text" placeholder="C:\\proyectos\\mi-app…" autocomplete="off" required />
+                        <button type="button" id="browse-path">Buscar</button>
                     </div>
-                    <div class="terminal-select-group">
-                        <label for="terminal-profile-select">Perfil</label>
-                        <select id="terminal-profile-select"></select>
+
+                    <label for="commands">Comandos (uno por linea)</label>
+                    <textarea id="commands" name="commands" rows="4" placeholder="npm install&#10;npm run dev" autocomplete="off" spellcheck="false" required></textarea>
+
+                    <label for="icon">Icono (opcional)</label>
+                    <div class="field-with-action">
+                        <input id="icon" name="icon" type="text" placeholder="https://cdn.jsdelivr.net/... o devicon:react…" autocomplete="off" />
+                        <button type="button" id="browse-icon">Buscar</button>
                     </div>
-                    <div class="terminal-actions">
-                        <button type="button" id="terminal-open">Abrir terminal</button>
-                        <button type="button" id="terminal-clear">Limpiar</button>
-                        <button type="button" id="terminal-close">Cerrar</button>
+                    <p class="input-hint">Atajos: <strong>devicon:react</strong>, <strong>devicon:javascript</strong>, <strong>devicon:spring</strong>, <strong>simple:nextdotjs</strong>, etc.</p>
+                    <div class="icon-presets" role="group" aria-label="Presets de iconos">
+                        <button type="button" class="icon-template" data-template="devicon:javascript">JS</button>
+                        <button type="button" class="icon-template" data-template="devicon:react">React</button>
+                        <button type="button" class="icon-template" data-template="devicon:nodejs">Node</button>
+                        <button type="button" class="icon-template" data-template="devicon:spring">Spring</button>
+                        <button type="button" class="icon-template" data-template="devicon:nextjs">Next.js</button>
+                        <button type="button" class="icon-template" data-template="devicon:angular">Angular</button>
+                        <button type="button" class="icon-template" data-template="devicon:vuejs">Vue</button>
                     </div>
-                </div>
-                <p id="terminal-status" class="terminal-status">Abre una sesion para trabajar dentro de la carpeta de un proyecto.</p>
-                <div id="terminal-container" class="terminal-container"></div>
+
+                    <div class="form-actions">
+                        <button id="submit-project" class="submit" type="submit">Guardar proyecto</button>
+                        <button id="cancel-edit" type="button" hidden>Cancelar edicion</button>
+                    </div>
+                    <div class="data-actions">
+                        <button id="auto-detect" type="button">Auto-detectar proyectos</button>
+                    </div>
+                    <p id="feedback" class="feedback" data-type="info" aria-live="polite"></p>
+                </form>
             </section>
-            <section id="settings-view" class="settings-view tab-panel is-hidden">
-                <article class="settings-card">
-                    <h3>Datos y mantenimiento</h3>
-                    <p>Administra respaldos y limpieza global de proyectos.</p>
-                    <div class="settings-actions">
-                        <button id="export-data" type="button">Exportar datos</button>
-                        <button id="import-data" type="button">Importar datos</button>
-                        <button id="clear-all" type="button">Borrar todo</button>
+
+            <section class="panel panel-list">
+                <header>
+                    <div>
+                        <p class="panel-eyebrow">Tablero</p>
+                        <h2>Proyectos guardados</h2>
+                    </div>
+                    <p id="runtime-info"></p>
+                </header>
+                <div class="project-filters">
+                    <input id="project-search" type="text" placeholder="Filtrar por nombre o ruta…" autocomplete="off" />
+                    <label class="favorite-filter">
+                        <input id="favorites-only" type="checkbox" />
+                        Solo favoritos
+                    </label>
+                </div>
+                <div class="tabs" role="tablist" aria-label="Vistas de proyectos">
+                    <button type="button" class="tab-button is-active" data-tab="projects" role="tab" aria-selected="true">Proyectos</button>
+                    <button type="button" class="tab-button" data-tab="processes" role="tab" aria-selected="false">Procesos</button>
+                    <button type="button" class="tab-button" data-tab="terminal" role="tab" aria-selected="false">Terminal</button>
+                    <button type="button" class="tab-button" data-tab="settings" role="tab" aria-selected="false">Ajustes</button>
+                </div>
+                <section id="projects-list" class="projects-list tab-panel"></section>
+                <section id="processes-view" class="processes-view tab-panel is-hidden"></section>
+                <section id="terminal-view" class="terminal-view tab-panel is-hidden">
+                    <div class="terminal-toolbar">
+                        <div class="terminal-select-group">
+                            <label for="terminal-project-select">Proyecto</label>
+                            <select id="terminal-project-select"></select>
+                        </div>
+                        <div class="terminal-select-group">
+                            <label for="terminal-profile-select">Perfil</label>
+                            <select id="terminal-profile-select"></select>
+                        </div>
+                        <div class="terminal-actions">
+                            <button type="button" id="terminal-open">Abrir terminal</button>
+                            <button type="button" id="terminal-clear">Limpiar</button>
+                            <button type="button" id="terminal-close">Cerrar</button>
+                        </div>
+                    </div>
+                    <p id="terminal-status" class="terminal-status" aria-live="polite">Abre una sesion para trabajar dentro de la carpeta de un proyecto.</p>
+                    <div id="terminal-container" class="terminal-container"></div>
+                </section>
+                <section id="settings-view" class="settings-view tab-panel is-hidden">
+                    <article class="settings-card">
+                        <h3>Datos y mantenimiento</h3>
+                        <p>Administra respaldos y limpieza global de proyectos.</p>
+                        <div class="settings-actions">
+                            <button id="export-data" type="button">Exportar datos</button>
+                            <button id="import-data" type="button">Importar datos</button>
+                            <button id="clear-all" type="button">Borrar todo</button>
+                        </div>
+                    </article>
+                </section>
+            </section>
+
+            <section id="detect-modal" class="detect-modal is-hidden" aria-hidden="true">
+                <article class="detect-dialog" role="dialog" aria-modal="true" aria-labelledby="detect-title">
+                    <header>
+                        <h3 id="detect-title">Selecciona proyectos detectados</h3>
+                        <p id="detect-subtitle">Marca las carpetas que quieres agregar.</p>
+                    </header>
+                    <div id="detect-list" class="detect-list"></div>
+                    <footer class="detect-actions">
+                        <button type="button" id="detect-cancel">Cancelar</button>
+                        <button type="button" id="detect-select-all">Seleccionar todo</button>
+                        <button type="button" id="detect-apply" class="submit">Agregar seleccionados</button>
+                    </footer>
+                </article>
+            </section>
+
+            <section id="environment-profiles-modal" class="detect-modal is-hidden" aria-hidden="true">
+                <article class="detect-dialog environment-profiles-dialog" role="dialog" aria-modal="true" aria-labelledby="environment-profiles-title">
+                    <header>
+                        <div>
+                            <h3 id="environment-profiles-title">Perfiles de entorno</h3>
+                            <p id="environment-profiles-project" class="modal-subtitle">Selecciona un proyecto para administrar sus variables.</p>
+                        </div>
+                        <button type="button" id="environment-profiles-close">Cerrar</button>
+                    </header>
+                    <div class="environment-profiles-panel">
+                        <label>Perfiles de entorno</label>
+                        <div class="environment-profile-form">
+                            <input id="environment-profile-name" type="text" placeholder="Nombre del perfil, por ejemplo: Desarrollo…" autocomplete="off" />
+                            <textarea id="environment-profile-variables" rows="4" placeholder="API_URL=http://localhost:3000&#10;NODE_ENV=development" spellcheck="false"></textarea>
+                        </div>
+                        <div class="environment-profile-actions">
+                            <button type="button" id="environment-profile-save">Guardar perfil</button>
+                            <button type="button" id="environment-profile-cancel" hidden>Cancelar edicion</button>
+                        </div>
+                        <div id="environment-profiles-list" class="environment-profiles-list"></div>
+                        <p class="input-hint">Escribe variables como KEY=VALUE, una por linea. El primer perfil guardado se usa por defecto.</p>
                     </div>
                 </article>
             </section>
-        </section>
-
-        <section id="detect-modal" class="detect-modal is-hidden" aria-hidden="true">
-            <article class="detect-dialog" role="dialog" aria-modal="true" aria-labelledby="detect-title">
-                <header>
-                    <h3 id="detect-title">Selecciona proyectos detectados</h3>
-                    <p id="detect-subtitle">Marca las carpetas que quieres agregar.</p>
-                </header>
-                <div id="detect-list" class="detect-list"></div>
-                <footer class="detect-actions">
-                    <button type="button" id="detect-cancel">Cancelar</button>
-                    <button type="button" id="detect-select-all">Seleccionar todo</button>
-                    <button type="button" id="detect-apply" class="submit">Agregar seleccionados</button>
-                </footer>
-            </article>
-        </section>
-
-        <section id="environment-profiles-modal" class="detect-modal is-hidden" aria-hidden="true">
-            <article class="detect-dialog environment-profiles-dialog" role="dialog" aria-modal="true" aria-labelledby="environment-profiles-title">
-                <header>
-                    <div>
-                        <h3 id="environment-profiles-title">Perfiles de entorno</h3>
-                        <p id="environment-profiles-project" class="modal-subtitle">Selecciona un proyecto para administrar sus variables.</p>
-                    </div>
-                    <button type="button" id="environment-profiles-close">Cerrar</button>
-                </header>
-                <div class="environment-profiles-panel">
-                    <label>Perfiles de entorno</label>
-                    <div class="environment-profile-form">
-                        <input id="environment-profile-name" type="text" placeholder="Nombre del perfil, por ejemplo: Desarrollo" />
-                        <textarea id="environment-profile-variables" rows="4" placeholder="API_URL=http://localhost:3000&#10;NODE_ENV=development"></textarea>
-                    </div>
-                    <div class="environment-profile-actions">
-                        <button type="button" id="environment-profile-save">Guardar perfil</button>
-                        <button type="button" id="environment-profile-cancel" hidden>Cancelar edicion</button>
-                    </div>
-                    <div id="environment-profiles-list" class="environment-profiles-list"></div>
-                    <p class="input-hint">Escribe variables como KEY=VALUE, una por linea. El primer perfil guardado se usa por defecto.</p>
-                </div>
-            </article>
-        </section>
-    </main>
+        </main>
+    </div>
 </body>
 <script src="../node_modules/xterm/lib/xterm.js"></script>
 <script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
