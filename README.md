@@ -35,7 +35,10 @@ Todo desde una sola interfaz.
 - Soporte de multiples comandos por proyecto
 - Ejecucion y detencion de procesos
 - Panel de procesos con estado, PID y salida reciente
+- Multi-run secuencial por proyecto para ejecutar toda la cola de comandos
+- Terminal embebida por proyecto con shell interactivo para comandos manuales
 - Iconos por URL (Devicon, Simple Icons) o archivo local
+- Perfiles de entorno por proyecto para reutilizar variables y contexto de ejecucion
 - Persistencia local con electron-store (con migracion automatica desde projects.json legado)
 
 ### En progreso / siguiente
@@ -168,7 +171,8 @@ Nota: el archivo data/projects.json dentro del repo se mantiene como referencia/
 2. Agrega un proyecto (nombre, ruta, comandos, icono)
 3. Pulsa Ejecutar sobre el comando deseado
 4. Monitorea estado y salida en la pestaña Procesos
-5. Deten el proceso cuando lo necesites
+5. Usa la pestaña Terminal para escribir comandos manuales dentro del proyecto
+6. Deten el proceso cuando lo necesites
 
 ---
 
@@ -178,11 +182,11 @@ Nota: el archivo data/projects.json dentro del repo se mantiene como referencia/
 - [x] Soporte multi-comando
 - [x] Ejecucion y detencion de procesos
 - [x] Vista de procesos con PID/estado
-- [ ] Terminal embebida completa
-- [ ] Multi-run avanzado
-- [ ] Perfiles de entorno
-- [ ] Integracion con Git
-- [ ] Exportar / importar configuraciones
+- [x] Terminal embebida completa
+- [x] Multi-run avanzado
+- [x] Perfiles de entorno
+- [x] Integracion con Git
+- [x] Exportar / importar configuraciones
 
 ---
 

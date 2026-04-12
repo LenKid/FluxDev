@@ -1,5 +1,6 @@
 {
   "name": "fluxdev",
+  "productName": "FluxDev",
   "version": "1.0.0",
   "description": "Prueba de app de escritorio local",
   "repository": {
