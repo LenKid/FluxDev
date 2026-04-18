@@ -36,6 +36,7 @@ contextBridge.exposeInMainWorld('projectsApi', {
 
 contextBridge.exposeInMainWorld('terminalApi', {
     create: (payload) => ipcRenderer.invoke('terminal:create', payload),
+    openExternal: (payload) => ipcRenderer.invoke('terminal:open-external', payload),
     write: (payload) => ipcRenderer.invoke('terminal:write', payload),
     resize: (payload) => ipcRenderer.invoke('terminal:resize', payload),
     clear: (payload) => ipcRenderer.invoke('terminal:clear', payload),

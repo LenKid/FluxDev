@@ -3,14 +3,27 @@ const path = require('node:path')
 const fs = require('node:fs/promises')
 const { spawn, spawnSync } = require('node:child_process')
 const ElectronStore = require('electron-store')
-const pty = require('node-pty')
 const Store = ElectronStore.default || ElectronStore
+
+let pty = null
+const USE_PTY = false
 
 const PROJECTS_FILE = 'projects.json'
 const runningProcesses = new Map()
 const runningSequences = new Map()
 const terminalSessions = new Map()
 const isWindows = process.platform === 'win32'
+
+const stripAnsiCodes = (text) => {
+    if (!text || typeof text !== 'string') {
+        return ''
+    }
+    return text.replace(/\x1b\[[0-9;]*[a-zA-Z]/g, '')
+        .replace(/\x1b\][^\x07]*\x07/g, '')
+        .replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, '')
+        .replace(/[\x1b\x9b][?][0-9]*[a-zA-Z]/g, '')
+        .replace(/[\x1b\x9b][0-9]*[a-zA-Z]/g, '')
+}
 
 app.setName('FluxDev')
 
@@ -359,8 +372,16 @@ const terminateChildProcessSync = (child) => {
 const getInteractiveShell = () => {
     if (isWindows) {
         return {
-            command: process.env.COMSPEC || 'powershell.exe',
-            args: process.env.COMSPEC ? ['/K'] : ['-NoLogo', '-NoExit']
+            command: 'powershell.exe',
+            args: [
+                '-NoLogo',
+                '-NoExit',
+                '-NoProfile',
+                '-ExecutionPolicy',
+                'Bypass',
+                '-Command',
+                "[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false); [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); chcp 65001 > $null; if (Test-Path -LiteralPath $PROFILE) { . $PROFILE }"
+            ]
         }
     }
 
@@ -383,7 +404,33 @@ const writeTerminalOutput = (sessionId, data, isError = false) => {
     })
 }
 
+const toPowerShellEncodedCommand = (script) => {
+    return Buffer.from(String(script || ''), 'utf16le').toString('base64')
+}
+
+const normalizeTerminalInput = (data) => {
+    const value = String(data || '')
+
+    if (!value) {
+        return value
+    }
+
+    if (!isWindows || USE_PTY) {
+        return value
+    }
+
+    // In Windows without PTY, PowerShell can mis-handle DEL (\x7f).
+    // Map it to Backspace (\b) to keep cursor movement consistent.
+    return value.replace(/\x7f/g, '\b')
+}
+
 const createTerminalSession = async (payload = {}) => {
+    if (USE_PTY && pty) {
+        // Código pty original
+    } else {
+        // Sin pty - usar child_process spawn con pseudo-terminal
+    }
+
     const sessionId = String(payload.sessionId || Date.now().toString(36))
     const requestedProjectId = String(payload.projectId || '').trim()
     const requestedProfileId = String(payload.profileId || '').trim()
@@ -399,6 +446,7 @@ const createTerminalSession = async (payload = {}) => {
 
     let cwd = app.getPath('home')
     let runtimeEnv = process.env
+    const shell = getInteractiveShell()
 
     if (requestedProjectId) {
         const project = await getProjectById(requestedProjectId)
@@ -412,39 +460,53 @@ const createTerminalSession = async (payload = {}) => {
         cwd = customCwd
     }
 
-    let ptyProcess
+    if (isWindows) {
+        runtimeEnv = {
+            ...runtimeEnv,
+            TERM: runtimeEnv.TERM || 'xterm-256color',
+            LANG: runtimeEnv.LANG || 'en_US.UTF-8',
+            LC_ALL: runtimeEnv.LC_ALL || 'en_US.UTF-8'
+        }
+    }
 
+    let child
     try {
-        const shell = getInteractiveShell()
-        ptyProcess = pty.spawn(shell.command, shell.args, {
-            name: 'xterm-256color',
-            cols: 80,
-            rows: 30,
-            cwd,
-            env: runtimeEnv,
-            encoding: 'utf8',
-            useConpty: isWindows
-        })
+        if (initialCommand) {
+            child = spawn(initialCommand, [], {
+                cwd,
+                env: runtimeEnv,
+                shell: true,
+                windowsHide: false
+            })
+        } else {
+            child = spawn(shell.command, shell.args, {
+                cwd,
+                env: runtimeEnv,
+                shell: false,
+                windowsHide: false
+            })
+        }
     } catch (error) {
         throw new Error(error.message || 'No se pudo iniciar la terminal.')
     }
 
-    terminalSessions.set(sessionId, ptyProcess)
+    terminalSessions.set(sessionId, child)
 
-    ptyProcess.onData((chunk) => writeTerminalOutput(sessionId, chunk, false))
+    child.stdout?.on('data', (chunk) => writeTerminalOutput(sessionId, chunk, false))
+    child.stderr?.on('data', (chunk) => writeTerminalOutput(sessionId, chunk, true))
 
-    ptyProcess.onExit(({ exitCode, signal }) => {
+    child.on('close', (code) => {
         terminalSessions.delete(sessionId)
         broadcastTerminalUpdate({
             sessionId,
             type: 'exit',
-            data: `Terminal cerrada (code: ${exitCode ?? 'null'}, signal: ${signal ?? 'null'})`
+            data: `Terminal cerrada (code: ${code ?? 'null'})`
         })
     })
 
-    if (initialCommand) {
-        ptyProcess.write(`${initialCommand}\r`)
-    }
+    child.on('error', (error) => {
+        writeTerminalOutput(sessionId, `Error: ${error.message}`, true)
+    })
 
     broadcastTerminalUpdate({
         sessionId,
@@ -459,38 +521,115 @@ const createTerminalSession = async (payload = {}) => {
     }
 }
 
+const openExternalTerminalSession = async (payload = {}) => {
+    const requestedProjectId = String(payload.projectId || '').trim()
+    const requestedProfileId = String(payload.profileId || '').trim()
+    const requestedCwd = String(payload.cwd || '').trim()
+    const initialCommand = String(payload.initialCommand || '').trim()
+
+    if (!requestedProjectId) {
+        throw new Error('Debes seleccionar un proyecto para abrir terminal externa.')
+    }
+
+    const project = await getProjectById(requestedProjectId)
+    if (!project) {
+        throw new Error('Proyecto no encontrado para la terminal externa.')
+    }
+
+    const cwd = requestedCwd || project.path
+
+    try {
+        const stats = await fs.stat(cwd)
+        if (!stats.isDirectory()) {
+            throw new Error('La ruta de terminal externa no es valida.')
+        }
+    } catch {
+        throw new Error('No se encontro la ruta para abrir la terminal externa.')
+    }
+
+    const runtimeEnv = {
+        ...resolveRuntimeEnvironment(project, requestedProfileId).env,
+        FLUXDEV_INITIAL_COMMAND: initialCommand || ''
+    }
+    const psCwd = cwd.replace(/'/g, "''")
+    const psInit = [
+        '[Console]::InputEncoding=[System.Text.UTF8Encoding]::new($false)',
+        '[Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false)',
+        'chcp 65001 > $null',
+        `Set-Location -LiteralPath '${psCwd}'`,
+        'if (Test-Path -LiteralPath $PROFILE) { . $PROFILE }',
+        'if ($env:FLUXDEV_INITIAL_COMMAND) { Invoke-Expression $env:FLUXDEV_INITIAL_COMMAND }'
+    ].join('; ')
+    const encodedPsInit = toPowerShellEncodedCommand(psInit)
+
+    if (isWindows) {
+        const hasWindowsTerminal = spawnSync('where', ['wt'], {
+            windowsHide: true,
+            stdio: 'ignore'
+        }).status === 0
+
+        if (hasWindowsTerminal) {
+            const wt = spawn('wt', ['-d', cwd, 'powershell.exe', '-NoLogo', '-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedPsInit], {
+                cwd,
+                env: runtimeEnv,
+                detached: true,
+                stdio: 'ignore',
+                windowsHide: false
+            })
+            wt.unref()
+        } else {
+            const fallback = spawn('powershell.exe', ['-NoLogo', '-NoExit', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', encodedPsInit], {
+                cwd,
+                env: runtimeEnv,
+                detached: true,
+                stdio: 'ignore',
+                windowsHide: false
+            })
+            fallback.unref()
+        }
+    } else {
+        const shell = getInteractiveShell()
+        const child = spawn(shell.command, shell.args, {
+            cwd,
+            env: runtimeEnv,
+            detached: true,
+            stdio: 'ignore',
+            windowsHide: false
+        })
+        child.unref()
+    }
+
+    return {
+        opened: true,
+        projectId: requestedProjectId,
+        cwd
+    }
+}
+
 const writeToTerminalSession = async (payload = {}) => {
     const sessionId = String(payload.sessionId || '').trim()
-    const data = String(payload.data || '')
+    const data = normalizeTerminalInput(payload.data)
 
     if (!sessionId) {
         throw new Error('Debes indicar la terminal destino.')
     }
 
-    const ptyProcess = terminalSessions.get(sessionId)
-    if (!ptyProcess) {
+    const child = terminalSessions.get(sessionId)
+    if (!child) {
         throw new Error('La terminal ya no existe.')
     }
 
-    ptyProcess.write(data)
+    if (child.stdin) {
+        child.stdin.write(data)
+    } else if (child.write) {
+        child.write(data)
+    }
 }
 
 const resizeTerminalSession = async (payload = {}) => {
     const sessionId = String(payload.sessionId || '').trim()
-    const cols = Number(payload.cols)
-    const rows = Number(payload.rows)
-
     if (!sessionId) {
         return
-    }
-
-    const ptyProcess = terminalSessions.get(sessionId)
-    if (!ptyProcess) {
-        return
-    }
-
-    if (Number.isFinite(cols) && Number.isFinite(rows) && cols > 0 && rows > 0) {
-        ptyProcess.resize(cols, rows)
     }
 }
 
@@ -720,7 +859,7 @@ const spawnProjectCommandProcess = async (project, command, options = {}) => {
                 projectId: project.id,
                 command,
                 status: 'log',
-                message: String(chunk)
+                message: stripAnsiCodes(String(chunk))
             })
         })
 
@@ -729,7 +868,7 @@ const spawnProjectCommandProcess = async (project, command, options = {}) => {
                 projectId: project.id,
                 command,
                 status: 'error-log',
-                message: String(chunk)
+                message: stripAnsiCodes(String(chunk))
             })
         })
 
@@ -1365,6 +1504,7 @@ const registerIpcHandlers = () => {
     ipcMain.handle('projects:import', async () => importProjectsFromFile())
 
     ipcMain.handle('terminal:create', async (_event, payload) => createTerminalSession(payload))
+    ipcMain.handle('terminal:open-external', async (_event, payload) => openExternalTerminalSession(payload))
     ipcMain.handle('terminal:write', async (_event, payload) => writeToTerminalSession(payload))
     ipcMain.handle('terminal:resize', async (_event, payload) => resizeTerminalSession(payload))
     ipcMain.handle('terminal:clear', async (_event, payload) => clearTerminalSession(payload))

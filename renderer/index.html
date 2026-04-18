@@ -3,15 +3,15 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org" />
-    <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org; worker-src 'self' blob:; connect-src 'self' blob: data:" />
+    <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FluxDev | Proyectos Locales</title>
     <link rel="stylesheet" href="./styles.css" />
-    <link rel="stylesheet" href="../node_modules/xterm/css/xterm.css" />
 </head>
 
 <body>
+    <script type="module" src="./terminal-loader.js"></script>
     <main class="layout">
         <section class="panel panel-form">
             <header>
@@ -30,7 +30,10 @@
                 <label for="path">Ruta local</label>
                 <div class="field-with-action">
                     <input id="path" name="path" type="text" placeholder="C:\\proyectos\\mi-app" required />
-                    <button type="button" id="browse-path">Buscar</button>
+                    <button type="button" id="browse-path" class="icon-button" title="Buscar carpeta" aria-label="Buscar carpeta">
+                        <img class="ui-icon" src="../public/icons/tabler/folder.svg" alt="" aria-hidden="true" />
+                        <span class="sr-only">Buscar carpeta</span>
+                    </button>
                 </div>
 
                 <label for="commands">Comandos (uno por linea)</label>
@@ -39,7 +42,10 @@
                 <label for="icon">Icono (opcional)</label>
                 <div class="field-with-action">
                     <input id="icon" name="icon" type="text" placeholder="https://cdn.jsdelivr.net/... o devicon:react" />
-                    <button type="button" id="browse-icon">Buscar</button>
+                    <button type="button" id="browse-icon" class="icon-button" title="Buscar icono" aria-label="Buscar icono">
+                        <img class="ui-icon" src="../public/icons/tabler/photo-search.svg" alt="" aria-hidden="true" />
+                        <span class="sr-only">Buscar icono</span>
+                    </button>
                 </div>
                 <p class="input-hint">Atajos: <strong>devicon:react</strong>, <strong>devicon:javascript</strong>, <strong>devicon:spring</strong>, <strong>simple:nextdotjs</strong>, etc...</p>
                 <div class="icon-presets" role="group" aria-label="Presets de iconos">
@@ -94,12 +100,14 @@
                         <select id="terminal-profile-select"></select>
                     </div>
                     <div class="terminal-actions">
-                        <button type="button" id="terminal-open">Abrir terminal</button>
-                        <button type="button" id="terminal-clear">Limpiar</button>
-                        <button type="button" id="terminal-close">Cerrar</button>
+                        <button type="button" id="terminal-open-external" class="icon-button has-mobile-label" title="Abrir terminal externa" aria-label="Abrir terminal externa">
+                            <img class="ui-icon" src="../public/icons/tabler/screen-share.svg" alt="" aria-hidden="true" />
+                            <span class="label-on-mobile">Externa</span>
+                            <span class="sr-only">Abrir terminal externa</span>
+                        </button>
                     </div>
                 </div>
-                <p id="terminal-status" class="terminal-status">Abre una sesion para trabajar dentro de la carpeta de un proyecto.</p>
+                <p id="terminal-status" class="terminal-status">Visor de procesos (solo lectura). Para interactuar usa "Externa".</p>
                 <div id="terminal-container" class="terminal-container"></div>
             </section>
             <section id="settings-view" class="settings-view tab-panel is-hidden">
@@ -107,9 +115,18 @@
                     <h3>Datos y mantenimiento</h3>
                     <p>Administra respaldos y limpieza global de proyectos.</p>
                     <div class="settings-actions">
-                        <button id="export-data" type="button">Exportar datos</button>
-                        <button id="import-data" type="button">Importar datos</button>
-                        <button id="clear-all" type="button">Borrar todo</button>
+                        <button id="export-data" type="button" class="icon-button settings-action-button" title="Exportar datos" aria-label="Exportar datos">
+                            <img class="ui-icon" src="../public/icons/tabler/download.svg" alt="" aria-hidden="true" />
+                            <span>Exportar datos</span>
+                        </button>
+                        <button id="import-data" type="button" class="icon-button settings-action-button" title="Importar datos" aria-label="Importar datos">
+                            <img class="ui-icon" src="../public/icons/tabler/upload.svg" alt="" aria-hidden="true" />
+                            <span>Importar datos</span>
+                        </button>
+                        <button id="clear-all" type="button" class="icon-button settings-action-button" title="Borrar todo" aria-label="Borrar todo">
+                            <img class="ui-icon" src="../public/icons/tabler/trash-x.svg" alt="" aria-hidden="true" />
+                            <span>Borrar todo</span>
+                        </button>
                     </div>
                 </article>
             </section>
@@ -137,7 +154,10 @@
                         <h3 id="environment-profiles-title">Perfiles de entorno</h3>
                         <p id="environment-profiles-project" class="modal-subtitle">Selecciona un proyecto para administrar sus variables.</p>
                     </div>
-                    <button type="button" id="environment-profiles-close">Cerrar</button>
+                    <button type="button" id="environment-profiles-close" class="icon-button" title="Cerrar" aria-label="Cerrar">
+                        <img class="ui-icon" src="../public/icons/tabler/x.svg" alt="" aria-hidden="true" />
+                        <span class="sr-only">Cerrar</span>
+                    </button>
                 </header>
                 <div class="environment-profiles-panel">
                     <label>Perfiles de entorno</label>
@@ -156,8 +176,6 @@
         </section>
     </main>
 </body>
-<script src="../node_modules/xterm/lib/xterm.js"></script>
-<script src="../node_modules/xterm-addon-fit/lib/xterm-addon-fit.js"></script>
 <script src="./app.js"></script>
 
 </html>

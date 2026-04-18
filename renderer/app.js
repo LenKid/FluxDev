@@ -38,6 +38,7 @@ const terminalView = document.getElementById('terminal-view')
 const settingsView = document.getElementById('settings-view')
 const terminalProjectSelect = document.getElementById('terminal-project-select')
 const terminalProfileSelect = document.getElementById('terminal-profile-select')
+const terminalOpenExternalButton = document.getElementById('terminal-open-external')
 const terminalOpenButton = document.getElementById('terminal-open')
 const terminalClearButton = document.getElementById('terminal-clear')
 const terminalCloseButton = document.getElementById('terminal-close')
@@ -65,6 +66,14 @@ let terminalFitAddon = null
 let terminalUpdateUnsubscribe = null
 let terminalKeyListener = null
 let terminalInitialized = false
+let terminalEngineState = 'loading'
+let terminalEngineError = ''
+const TABLER_ICON_BASE = '../public/icons/tabler'
+
+const renderButtonIcon = (name, label, showMobileLabel = false) => {
+	const mobileLabel = showMobileLabel ? `<span class="label-on-mobile">${escapeHtml(label)}</span>` : ''
+	return `<img class="ui-icon" src="${TABLER_ICON_BASE}/${escapeHtml(name)}.svg" alt="" aria-hidden="true" />${mobileLabel}<span class="sr-only">${escapeHtml(label)}</span>`
+}
 
 const parseCommands = (commandsRaw) => {
 	return commandsRaw
@@ -567,7 +576,11 @@ const ensureTerminalInstance = () => {
 	}
 
 	if (!window.Terminal) {
-		setTerminalStatus('No se pudo cargar la terminal embebida.')
+		if (terminalEngineState === 'failed') {
+			setTerminalStatus(`Terminal integrada no disponible: ${terminalEngineError || 'No se pudo inicializar ghostty-web.'}`)
+		} else {
+			setTerminalStatus('Cargando motor de terminal...')
+		}
 		return
 	}
 
@@ -580,39 +593,39 @@ const ensureTerminalInstance = () => {
 			foreground: '#ebf6eb',
 			cursor: '#39ff14',
 			selectionBackground: 'rgba(57, 255, 20, 0.25)'
-		},
-		drawBoldTextInBrightColors: true,
-		disallowProposedApi: false
+		}
 	})
 
-	const FitAddonClass = window.FitAddon?.FitAddon || window.FitAddon
-	terminalFitAddon = FitAddonClass ? new FitAddonClass() : null
-
-	if (terminalFitAddon) {
-		terminal.loadAddon(terminalFitAddon)
-	}
-
 	terminal.open(terminalContainer)
-	terminal.write('FluxDev terminal lista. Usa el boton Abrir terminal.\r\n')
+	terminal.write('FluxDev | Visor de procesos (solo lectura)\r\n')
+	terminal.write('Usa "Externa" para interactuar con la terminal del sistema.\r\n\r\n')
 	terminalInstance = terminal
 	terminalInitialized = true
 
-	terminalKeyListener = terminal.onData((data) => {
-		if (terminalSessionId) {
-			window.terminalApi.write({ sessionId: terminalSessionId, data })
-		}
+	terminalFitAddon = { fit: fitTerminal }
+	fitTerminal()
+
+	terminalKeyListener = terminal.onData(() => {
+		// Modo visor: sin escritura en la terminal embebida.
 	})
 
 	window.addEventListener('resize', fitTerminal)
 }
 
 const fitTerminal = () => {
-	if (!terminalFitAddon || !terminalInstance) {
+	if (!terminalInstance || !terminalContainer) {
 		return
 	}
 
 	try {
-		terminalFitAddon.fit()
+		const container = terminalContainer
+		const rect = container.getBoundingClientRect()
+		const cellW = 8
+		const cellH = 16
+		const cols = Math.max(80, Math.floor(rect.width / cellW))
+		const rows = Math.max(24, Math.floor(rect.height / cellH))
+
+		terminalInstance.resize(cols, rows)
 		if (terminalSessionId) {
 			window.terminalApi.resize({
 				sessionId: terminalSessionId,
@@ -669,6 +682,44 @@ const openTerminalSession = async () => {
 	}
 }
 
+const openExternalTerminalSession = async () => {
+	const projectId = terminalProjectSelect.value
+	const profileId = terminalProfileSelect.value
+
+	if (!projectId) {
+		setTerminalStatus('Selecciona un proyecto antes de abrir terminal externa.')
+		return
+	}
+
+	try {
+		await window.terminalApi.openExternal({ projectId, profileId })
+		setTerminalStatus('Terminal externa abierta en la carpeta del proyecto seleccionado.')
+	} catch (error) {
+		setTerminalStatus(error?.message || 'No se pudo abrir la terminal externa.')
+	}
+}
+
+const appendProcessEventToTerminalViewer = (event) => {
+	if (!terminalInstance || !event) {
+		return
+	}
+
+	const projectName = getProjectNameById(event.projectId)
+	const status = String(event.status || 'log').toUpperCase()
+	const message = String(event.message || '').trim()
+	const lines = message ? message.split(/\r?\n/).filter(Boolean) : []
+	const timestamp = new Date().toLocaleTimeString()
+
+	if (!lines.length) {
+		terminalInstance.writeln(`[${timestamp}] [${status}] ${projectName}`)
+		return
+	}
+
+	lines.forEach((line) => {
+		terminalInstance.writeln(`[${timestamp}] [${status}] ${projectName}: ${line}`)
+	})
+}
+
 const closeTerminalSession = async () => {
 	if (!terminalSessionId) {
 		setTerminalStatus('No hay una sesion activa.')
@@ -699,6 +750,9 @@ const upsertProcessSnapshot = (payload) => {
 		return
 	}
 
+	const incomingStatus = String(payload?.status || '').trim()
+	const isLogEvent = incomingStatus === 'log' || incomingStatus === 'error-log'
+
 	const previous = processSnapshots.get(projectId) || {
 		projectId,
 		projectName: getProjectNameById(projectId),
@@ -713,7 +767,7 @@ const upsertProcessSnapshot = (payload) => {
 		projectName: getProjectNameById(projectId),
 		command: payload.command || previous.command,
 		pid: typeof payload.pid === 'number' ? payload.pid : previous.pid,
-		status: payload.status || previous.status,
+		status: isLogEvent ? previous.status : (incomingStatus || previous.status),
 		updatedAt: new Date().toISOString()
 	}
 
@@ -763,11 +817,16 @@ const renderProcessesView = () => {
 
 	processesView.innerHTML = snapshots
 		.map((item) => {
-			const statusClass = item.status === 'running' ? 'status running' : 'status idle'
-			const statusLabel = toStatusLabel(item.status)
+			const isRunning = runningProjectIds.has(item.projectId) || item.status === 'running' || item.status === 'stopping'
+			const effectiveStatus = isRunning ? (item.status === 'stopping' ? 'stopping' : 'running') : item.status
+			const statusClass = effectiveStatus === 'running' ? 'status running' : 'status idle'
+			const statusLabel = toStatusLabel(effectiveStatus)
 			const lastLogs = item.logs.length
 				? item.logs.map((line) => escapeHtml(line)).join('\n')
 				: 'Sin salida aun.'
+			const stopButton = isRunning
+				? `<button type="button" class="process-stop-button" data-project-id="${item.projectId}" data-command="${escapeHtml(item.command || '')}">Detener</button>`
+				: ''
 
 			return `
 				<article class="process-card">
@@ -779,10 +838,22 @@ const renderProcessesView = () => {
 					<p><strong>Comando:</strong> ${escapeHtml(item.command || '-')}</p>
 					<p><strong>Ultima actualizacion:</strong> ${escapeHtml(formatTimestamp(item.updatedAt))}</p>
 					<pre>${lastLogs}</pre>
+					${stopButton}
 				</article>
 			`
 		})
 		.join('')
+
+	processesView.querySelectorAll('.process-stop-button').forEach((button) => {
+		button.addEventListener('click', async (event) => {
+			const projectId = event.target.dataset.projectId
+			try {
+				await window.projectsApi.stop(projectId)
+			} catch (error) {
+				// El estado se actualiza via onRunUpdate
+			}
+		})
+	})
 }
 
 const setActiveTab = (tabName) => {
@@ -891,16 +962,16 @@ const renderProjects = (projects) => {
 						<h4>Comandos</h4>
 						<div class="run-controls">
 							<select class="command-select">${formatCommandOptions(project.commands)}</select>
-							<button type="button" class="run-button" ${isRunning ? 'disabled' : ''}>Ejecutar</button>
-							<button type="button" class="run-all-button" ${isRunning ? 'disabled' : ''}>Todo</button>
-							<button type="button" class="stop-button" ${isRunning ? '' : 'disabled'}>Detener</button>
+							<button type="button" class="run-button icon-button" ${isRunning ? 'disabled' : ''} title="Ejecutar comando" aria-label="Ejecutar comando">${renderButtonIcon('player-play', 'Ejecutar comando')}</button>
+							<button type="button" class="run-all-button icon-button" ${isRunning ? 'disabled' : ''} title="Ejecutar todos" aria-label="Ejecutar todos">${renderButtonIcon('player-track-next', 'Ejecutar todos')}</button>
+							<button type="button" class="stop-button icon-button has-mobile-label" ${isRunning ? '' : 'disabled'} title="Detener" aria-label="Detener">${renderButtonIcon('player-stop', 'Detener', true)}</button>
 						</div>
 						<div class="manage-controls">
-							<button type="button" class="favorite-button ${isFavorite ? 'is-favorite' : ''}">${isFavorite ? '★ Favorito' : '☆ Favorito'}</button>
-							<button type="button" class="view-process-button">Ver proceso</button>
-							<button type="button" class="environment-profiles-button">Perfiles</button>
-							<button type="button" class="edit-button">Editar</button>
-							<button type="button" class="delete-button">Eliminar</button>
+							<button type="button" class="favorite-button icon-button ${isFavorite ? 'is-favorite' : ''}" title="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}" aria-label="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}">${renderButtonIcon('star', isFavorite ? 'Quitar favorito' : 'Marcar favorito')}</button>
+							<button type="button" class="view-process-button icon-button" title="Ver proceso" aria-label="Ver proceso">${renderButtonIcon('screen-share', 'Ver proceso')}</button>
+							<button type="button" class="environment-profiles-button icon-button" title="Perfiles de entorno" aria-label="Perfiles de entorno">${renderButtonIcon('binary-tree-2', 'Perfiles de entorno')}</button>
+							<button type="button" class="edit-button icon-button" title="Editar proyecto" aria-label="Editar proyecto">${renderButtonIcon('edit', 'Editar proyecto')}</button>
+							<button type="button" class="delete-button icon-button has-mobile-label" title="Eliminar proyecto" aria-label="Eliminar proyecto">${renderButtonIcon('trash', 'Eliminar', true)}</button>
 						</div>
 						<div class="project-profile-runner">
 							<label>Perfil de entorno</label>
@@ -933,7 +1004,18 @@ const loadProjects = async () => {
 	})
 	syncTerminalProjectOptions()
 	syncTerminalProfileOptions()
-	terminalOpenButton.disabled = currentProjects.length === 0
+	if (terminalOpenButton) {
+		terminalOpenButton.disabled = true
+	}
+	if (terminalClearButton) {
+		terminalClearButton.disabled = true
+	}
+	if (terminalCloseButton) {
+		terminalCloseButton.disabled = true
+	}
+	if (terminalOpenExternalButton) {
+		terminalOpenExternalButton.disabled = currentProjects.length === 0
+	}
 	processSnapshots.forEach((snapshot, projectId) => {
 		processSnapshots.set(projectId, {
 			...snapshot,
@@ -984,9 +1066,10 @@ terminalProfileSelect.addEventListener('change', () => {
 	}
 })
 
-terminalOpenButton.addEventListener('click', openTerminalSession)
-terminalClearButton.addEventListener('click', clearTerminalSession)
-terminalCloseButton.addEventListener('click', closeTerminalSession)
+terminalOpenExternalButton?.addEventListener('click', openExternalTerminalSession)
+terminalOpenButton?.addEventListener('click', openTerminalSession)
+terminalClearButton?.addEventListener('click', clearTerminalSession)
+terminalCloseButton?.addEventListener('click', closeTerminalSession)
 
 projectSearchInput.addEventListener('input', () => {
 	projectSearchTerm = projectSearchInput.value
@@ -1226,13 +1309,18 @@ projectsList.addEventListener('click', async (event) => {
 		return
 	}
 
+	const actionButton = event.target.closest('button')
+	if (!actionButton) {
+		return
+	}
+
 	const projectId = card.dataset.projectId
 	const commandSelect = card.querySelector('.command-select')
 	const profileSelect = card.querySelector('.profile-select')
 	const command = commandSelect?.value || ''
 	const profileId = profileSelect?.value || ''
 
-	if (event.target.classList.contains('run-button')) {
+	if (actionButton.classList.contains('run-button')) {
 		try {
 			const runResult = await window.projectsApi.run(projectId, command, profileId)
 			runningProjectIds.add(projectId)
@@ -1247,7 +1335,7 @@ projectsList.addEventListener('click', async (event) => {
 		}
 	}
 
-	if (event.target.classList.contains('run-all-button')) {
+	if (actionButton.classList.contains('run-all-button')) {
 		try {
 			await window.projectsApi.runAll(projectId, profileId)
 			selectedEnvironmentProfileByProjectId.set(projectId, profileId)
@@ -1257,7 +1345,7 @@ projectsList.addEventListener('click', async (event) => {
 		}
 	}
 
-	if (event.target.classList.contains('stop-button')) {
+	if (actionButton.classList.contains('stop-button')) {
 		try {
 			await window.projectsApi.stop(projectId)
 			runningProjectIds.delete(projectId)
@@ -1271,15 +1359,15 @@ projectsList.addEventListener('click', async (event) => {
 		}
 	}
 
-	if (event.target.classList.contains('view-process-button')) {
+	if (actionButton.classList.contains('view-process-button')) {
 		setActiveTab('processes')
 	}
 
-	if (event.target.classList.contains('environment-profiles-button')) {
+	if (actionButton.classList.contains('environment-profiles-button')) {
 		openEnvironmentProfilesModal(projectId)
 	}
 
-	if (event.target.classList.contains('favorite-button')) {
+	if (actionButton.classList.contains('favorite-button')) {
 		try {
 			await window.projectsApi.toggleFavorite(projectId)
 			await loadProjects()
@@ -1289,11 +1377,11 @@ projectsList.addEventListener('click', async (event) => {
 		}
 	}
 
-	if (event.target.classList.contains('edit-button')) {
+	if (actionButton.classList.contains('edit-button')) {
 		startEditMode(projectId)
 	}
 
-	if (event.target.classList.contains('delete-button')) {
+	if (actionButton.classList.contains('delete-button')) {
 		const confirmDelete = window.confirm('Este proyecto se eliminara. Deseas continuar?')
 		if (!confirmDelete) {
 			return
@@ -1345,6 +1433,8 @@ window.projectsApi.onRunUpdate((event) => {
 		appendProcessLog(event.projectId, event.message, 'sys')
 	}
 
+	appendProcessEventToTerminalViewer(event)
+
 	renderProcessesView()
 
 	if (event.status === 'running' || event.status === 'failed' || event.status === 'stopped') {
@@ -1393,6 +1483,26 @@ window.terminalApi.onUpdate((event) => {
 		appendTerminalData(`\r\n${event.data}\r\n`)
 		terminalSessionId = null
 	}
+})
+
+window.addEventListener('terminal-unavailable', (event) => {
+	const reason = event?.detail?.reason || 'No se pudo inicializar ghostty-web.'
+	terminalEngineState = 'failed'
+	terminalEngineError = reason
+	setTerminalStatus(`Terminal integrada no disponible: ${reason}`)
+	setFeedback('La terminal integrada requiere ghostty-web disponible en node_modules.', 'error')
+})
+
+window.addEventListener('terminal-loaded', () => {
+	terminalEngineState = 'ready'
+	terminalEngineError = ''
+
+	if (activeTab !== 'terminal') {
+		return
+	}
+
+	ensureTerminalInstance()
+	fitTerminal()
 })
 
 runtimeInfo.textContent = `Chrome ${window.versions.chrome()} | Node ${window.versions.node()} | Electron ${window.versions.electron()}`
