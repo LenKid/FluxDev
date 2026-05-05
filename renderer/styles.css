@@ -693,7 +693,7 @@ button:disabled {
   display: grid;
   gap: 0.75rem;
   max-height: 74vh;
-  overflow: auto;
+  overflow: hidden;
   padding-right: 0.2rem;
 }
 
@@ -879,6 +879,7 @@ button:disabled {
   border-radius: 12px;
   background: var(--surface);
   padding: 0.9rem;
+  overflow: auto;
 }
 
 .process-card header {
