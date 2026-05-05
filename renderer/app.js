@@ -31,6 +31,7 @@ const formSubtitle = document.getElementById('form-subtitle')
 const feedback = document.getElementById('feedback')
 const projectSearchInput = document.getElementById('project-search')
 const favoritesOnlyInput = document.getElementById('favorites-only')
+const projectSortSelect = document.getElementById('project-sort')
 const projectFilters = document.querySelector('.project-filters')
 const projectsList = document.getElementById('projects-list')
 const processesView = document.getElementById('processes-view')
@@ -59,6 +60,7 @@ let environmentProfilesTargetProjectId = ''
 let activeTab = 'projects'
 let projectSearchTerm = ''
 let favoritesOnly = false
+let projectSortBy = 'name'
 let detectedCandidates = []
 let terminalSessionId = null
 let terminalInstance = null
@@ -70,9 +72,10 @@ let terminalEngineState = 'loading'
 let terminalEngineError = ''
 const TABLER_ICON_BASE = '../public/icons/tabler'
 
-const renderButtonIcon = (name, label, showMobileLabel = false) => {
+const renderButtonIcon = (name, label, showMobileLabel = false, showLabel = false) => {
 	const mobileLabel = showMobileLabel ? `<span class="label-on-mobile">${escapeHtml(label)}</span>` : ''
-	return `<img class="ui-icon" src="${TABLER_ICON_BASE}/${escapeHtml(name)}.svg" alt="" aria-hidden="true" />${mobileLabel}<span class="sr-only">${escapeHtml(label)}</span>`
+	const visibleLabel = showLabel ? `<span class="button-label">${escapeHtml(label)}</span>` : ''
+	return `<img class="ui-icon" src="${TABLER_ICON_BASE}/${escapeHtml(name)}.svg" alt="" aria-hidden="true" />${visibleLabel}${mobileLabel}<span class="sr-only">${escapeHtml(label)}</span>`
 }
 
 const parseCommands = (commandsRaw) => {
@@ -309,6 +312,39 @@ const setFeedback = (message, type = 'info') => {
 	feedback.dataset.type = type
 }
 
+const showToast = (message, type = 'info', duration = 4000, actions = []) => {
+	const container = document.getElementById('toast-container')
+	const toast = document.createElement('div')
+	toast.className = `toast toast-${type}`
+	toast.textContent = message
+
+	if (actions.length > 0) {
+		const actionsDiv = document.createElement('div')
+		actionsDiv.className = 'toast-actions'
+		actions.forEach((action) => {
+			const btn = document.createElement('button')
+			btn.textContent = action.label
+			btn.onclick = () => {
+				action.onClick()
+				toast.remove()
+			}
+			actionsDiv.appendChild(btn)
+		})
+		toast.appendChild(actionsDiv)
+	}
+
+	container.appendChild(toast)
+
+	if (duration > 0) {
+		setTimeout(() => {
+			toast.classList.add('toast-exit')
+			setTimeout(() => toast.remove(), 250)
+		}, duration)
+	}
+
+	return toast
+}
+
 const setButtonLoading = (button, loading, label = '') => {
 	if (!button) {
 		return
@@ -408,6 +444,18 @@ const toDisplayProjects = (projects) => {
 				return favDelta
 			}
 
+			const sortBy = projectSortSelect?.value || projectSortBy
+			if (sortBy === 'path') {
+				return String(a.path).localeCompare(String(b.path))
+			}
+			if (sortBy === 'updatedAt') {
+				const dateA = new Date(a.updatedAt || 0).getTime()
+				const dateB = new Date(b.updatedAt || 0).getTime()
+				return dateB - dateA
+			}
+			if (sortBy === 'favorite') {
+				return Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
+			}
 			return String(a.name).localeCompare(String(b.name))
 		})
 }
@@ -746,6 +794,7 @@ const clearTerminalSession = async () => {
 
 const upsertProcessSnapshot = (payload) => {
 	const projectId = String(payload?.projectId ?? '').trim()
+	const processKey = String(payload?.processKey || `${projectId}:${Date.now().toString(36)}`).trim()
 	if (!projectId) {
 		return
 	}
@@ -753,8 +802,10 @@ const upsertProcessSnapshot = (payload) => {
 	const incomingStatus = String(payload?.status || '').trim()
 	const isLogEvent = incomingStatus === 'log' || incomingStatus === 'error-log'
 
-	const previous = processSnapshots.get(projectId) || {
+	const key = processKey || projectId
+	const previous = processSnapshots.get(key) || {
 		projectId,
+		processKey: key,
 		projectName: getProjectNameById(projectId),
 		command: '',
 		pid: null,
@@ -771,15 +822,18 @@ const upsertProcessSnapshot = (payload) => {
 		updatedAt: new Date().toISOString()
 	}
 
-	processSnapshots.set(projectId, next)
+	processSnapshots.set(key, next)
 }
 
-const appendProcessLog = (projectId, message, kind = 'log') => {
+const appendProcessLog = (payload, message, kind = 'log') => {
+	const projectId = String(payload?.projectId || '').trim()
+	const processKey = String(payload?.processKey || '').trim()
 	if (!projectId || !message) {
 		return
 	}
 
-	const snapshot = processSnapshots.get(projectId)
+	const key = processKey || projectId
+	const snapshot = processSnapshots.get(key)
 	if (!snapshot) {
 		return
 	}
@@ -791,7 +845,7 @@ const appendProcessLog = (projectId, message, kind = 'log') => {
 
 	const logLine = `[${kind}] ${cleanLine}`
 	const logs = [...snapshot.logs, logLine].slice(-12)
-	processSnapshots.set(projectId, {
+	processSnapshots.set(key, {
 		...snapshot,
 		logs,
 		updatedAt: new Date().toISOString()
@@ -817,16 +871,21 @@ const renderProcessesView = () => {
 
 	processesView.innerHTML = snapshots
 		.map((item) => {
+			const processKey = item.processKey || `${item.projectId}:${Date.now().toString(36)}`
 			const isRunning = runningProjectIds.has(item.projectId) || item.status === 'running' || item.status === 'stopping'
-			const effectiveStatus = isRunning ? (item.status === 'stopping' ? 'stopping' : 'running') : item.status
+			const effectiveStatus = isRunning ? (item.status === 'stopping' ? 'stopping' : 'running') : (item.status || 'idle')
 			const statusClass = effectiveStatus === 'running' ? 'status running' : 'status idle'
 			const statusLabel = toStatusLabel(effectiveStatus)
 			const lastLogs = item.logs.length
 				? item.logs.map((line) => escapeHtml(line)).join('\n')
 				: 'Sin salida aun.'
 			const stopButton = isRunning
-				? `<button type="button" class="process-stop-button" data-project-id="${item.projectId}" data-command="${escapeHtml(item.command || '')}">Detener</button>`
+				? `<button type="button" class="process-stop-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}">Detener</button>`
+				: `<button type="button" class="process-stop-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}" disabled>Detener</button>`
+			const rerunButton = item.command
+				? `<button type="button" class="process-rerun-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}">Re-ejecutar</button>`
 				: ''
+			const closeButton = `<button type="button" class="process-close-button" data-project-id="${item.projectId}" data-process-key="${processKey}" title="Cerrar">${renderButtonIcon('x', 'Cerrar')}</button>`
 
 			return `
 				<article class="process-card">
@@ -838,7 +897,11 @@ const renderProcessesView = () => {
 					<p><strong>Comando:</strong> ${escapeHtml(item.command || '-')}</p>
 					<p><strong>Ultima actualizacion:</strong> ${escapeHtml(formatTimestamp(item.updatedAt))}</p>
 					<pre>${lastLogs}</pre>
-					${stopButton}
+					<div class="process-actions">
+						${rerunButton}
+						${stopButton}
+						${closeButton}
+					</div>
 				</article>
 			`
 		})
@@ -847,11 +910,50 @@ const renderProcessesView = () => {
 	processesView.querySelectorAll('.process-stop-button').forEach((button) => {
 		button.addEventListener('click', async (event) => {
 			const projectId = event.target.dataset.projectId
+			const processKey = event.target.dataset.processKey
 			try {
-				await window.projectsApi.stop(projectId)
+				await window.projectsApi.stop({ projectId, processKey })
 			} catch (error) {
 				// El estado se actualiza via onRunUpdate
 			}
+		})
+	})
+
+	processesView.querySelectorAll('.process-rerun-button').forEach((button) => {
+		button.addEventListener('click', async (event) => {
+			const projectId = event.target.dataset.projectId
+			const processKey = event.target.dataset.processKey
+			const command = event.target.dataset.command
+			try {
+				const stopResult = await window.projectsApi.stop({ projectId, processKey })
+				if (stopResult?.stopped) {
+					runningProjectIds.delete(projectId)
+					await new Promise((resolve) => setTimeout(resolve, 400))
+				}
+				const runResult = await window.projectsApi.run(projectId, command, '')
+				runningProjectIds.add(projectId)
+				upsertProcessSnapshot(runResult)
+				appendProcessLog({ projectId, processKey: runResult.processKey }, `Reiniciando: ${command}`, 'sys')
+				renderProjects(currentProjects)
+				renderProcessesView()
+			} catch (error) {
+				showToast(error?.message || 'No se pudo reiniciar el comando.', 'error')
+			}
+		})
+	})
+
+	processesView.querySelectorAll('.process-close-button').forEach((button) => {
+		button.addEventListener('click', async (event) => {
+			const projectId = event.target.dataset.projectId
+			const processKey = event.target.dataset.processKey
+			try {
+				await window.projectsApi.stop({ projectId, processKey })
+				runningProjectIds.delete(projectId)
+			} catch (error) {
+				// Puede que ya esté detenido
+			}
+			processSnapshots.delete(processKey)
+			renderProcessesView()
 		})
 	})
 }
@@ -934,8 +1036,8 @@ const renderProjects = (projects) => {
 
 	projectsList.innerHTML = visibleProjects
 		.map((project) => {
-			const isRunning = runningProjectIds.has(project.id)
 			const isFavorite = Boolean(project.favorite)
+			const isRunning = runningProjectIds.has(project.id)
 			const activeProfileId = getNormalizedProfileId(project)
 			const iconUrl = normalizeIconInput(project.icon)
 			const iconMarkup = iconUrl
@@ -943,18 +1045,15 @@ const renderProjects = (projects) => {
 				: `<div class="project-icon project-icon-fallback">${getProjectInitial(project.name)}</div>`
 			const iconLabel = iconUrl ? escapeHtml(iconUrl) : 'Sin icono'
 			const environmentProfiles = Array.isArray(project.environmentProfiles) ? project.environmentProfiles : []
-			const runStateClass = isRunning ? 'status running' : 'status idle'
-			const runStateText = isRunning ? 'En ejecucion' : 'Detenido'
 
 			return `
-				<article class="project-card" data-project-id="${escapeHtml(project.id)}">
+				<article class="project-card" data-project-id="${escapeHtml(project.id)}" title="${escapeHtml(project.path)}">
 					<header>
 						<div class="card-title-wrap">
 							${iconMarkup}
 							<div>
 								<h3>${escapeHtml(project.name)}</h3>
-								<p>${escapeHtml(project.path)}</p>
-								<span class="${runStateClass}">${runStateText}</span>
+								<p class="project-path-label">${escapeHtml(project.path)}</p>
 							</div>
 						</div>
 					</header>
@@ -962,14 +1061,16 @@ const renderProjects = (projects) => {
 						<h4>Comandos</h4>
 						<div class="run-controls">
 							<select class="command-select">${formatCommandOptions(project.commands)}</select>
-							<button type="button" class="run-button icon-button" ${isRunning ? 'disabled' : ''} title="Ejecutar comando" aria-label="Ejecutar comando">${renderButtonIcon('player-play', 'Ejecutar comando')}</button>
-							<button type="button" class="run-all-button icon-button" ${isRunning ? 'disabled' : ''} title="Ejecutar todos" aria-label="Ejecutar todos">${renderButtonIcon('player-track-next', 'Ejecutar todos')}</button>
+							<button type="button" class="run-button icon-button" title="Ejecutar comando" aria-label="Ejecutar comando">${renderButtonIcon('player-play', 'Ejecutar comando')}</button>
+							<button type="button" class="run-all-button icon-button" title="Ejecutar todos" aria-label="Ejecutar todos">${renderButtonIcon('player-track-next', 'Ejecutar todos')}</button>
 							<button type="button" class="stop-button icon-button has-mobile-label" ${isRunning ? '' : 'disabled'} title="Detener" aria-label="Detener">${renderButtonIcon('player-stop', 'Detener', true)}</button>
 						</div>
 						<div class="manage-controls">
 							<button type="button" class="favorite-button icon-button ${isFavorite ? 'is-favorite' : ''}" title="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}" aria-label="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}">${renderButtonIcon('star', isFavorite ? 'Quitar favorito' : 'Marcar favorito')}</button>
-							<button type="button" class="view-process-button icon-button" title="Ver proceso" aria-label="Ver proceso">${renderButtonIcon('screen-share', 'Ver proceso')}</button>
-							<button type="button" class="environment-profiles-button icon-button" title="Perfiles de entorno" aria-label="Perfiles de entorno">${renderButtonIcon('binary-tree-2', 'Perfiles de entorno')}</button>
+							<button type="button" class="open-folder-button icon-button" title="Abrir carpeta" aria-label="Abrir carpeta">${renderButtonIcon('folder', 'Abrir carpeta')}</button>
+							<button type="button" class="view-process-button icon-button icon-text" title="Ver proceso" aria-label="Ver proceso">${renderButtonIcon('screen-share', 'Ver proceso', false, true)}</button>
+							<button type="button" class="environment-profiles-button icon-button icon-text" title="Perfiles de entorno" aria-label="Perfiles de entorno">${renderButtonIcon('binary-tree-2', 'Perfiles de entorno', false, true)}</button>
+							<button type="button" class="redetect-button icon-button" title="Re-detectar comandos y perfiles" aria-label="Re-detectar">${renderButtonIcon('refresh', 'Re-detectar')}</button>
 							<button type="button" class="edit-button icon-button" title="Editar proyecto" aria-label="Editar proyecto">${renderButtonIcon('edit', 'Editar proyecto')}</button>
 							<button type="button" class="delete-button icon-button has-mobile-label" title="Eliminar proyecto" aria-label="Eliminar proyecto">${renderButtonIcon('trash', 'Eliminar', true)}</button>
 						</div>
@@ -980,7 +1081,6 @@ const renderProjects = (projects) => {
 							</select>
 						</div>
 						<p class="project-meta">${escapeHtml(getGitSummary(project.id))}</p>
-						<ul>${formatCommands(project.commands)}</ul>
 					</section>
 					<footer>
 						<span>Icono: ${iconLabel}</span>
@@ -1081,6 +1181,11 @@ favoritesOnlyInput.addEventListener('change', () => {
 	renderProjects(currentProjects)
 })
 
+projectSortSelect?.addEventListener('change', () => {
+	projectSortBy = projectSortSelect.value
+	renderProjects(currentProjects)
+})
+
 iconTemplateButtons.forEach((button) => {
 	button.addEventListener('click', () => {
 		iconInput.value = button.dataset.template || ''
@@ -1107,9 +1212,11 @@ form.addEventListener('submit', async (event) => {
 		if (editingProjectId) {
 			await window.projectsApi.update(editingProjectId, payload)
 			setFeedback('Proyecto actualizado correctamente.', 'success')
+			showToast('Proyecto actualizado', 'success')
 		} else {
 			await window.projectsApi.add(payload)
 			setFeedback('Proyecto guardado correctamente.', 'success')
+			showToast('Proyecto guardado', 'success')
 		}
 
 		form.reset()
@@ -1118,6 +1225,7 @@ form.addEventListener('submit', async (event) => {
 	} catch (error) {
 		const message = error?.message || 'No se pudo guardar el proyecto.'
 		setFeedback(message, 'error')
+		showToast(message, 'error')
 	}
 })
 
@@ -1318,20 +1426,21 @@ projectsList.addEventListener('click', async (event) => {
 	const commandSelect = card.querySelector('.command-select')
 	const profileSelect = card.querySelector('.profile-select')
 	const command = commandSelect?.value || ''
-	const profileId = profileSelect?.value || ''
+	const profile = profileSelect?.value || ''
 
 	if (actionButton.classList.contains('run-button')) {
 		try {
-			const runResult = await window.projectsApi.run(projectId, command, profileId)
+			const runResult = await window.projectsApi.run(projectId, command, profile)
 			runningProjectIds.add(projectId)
-			selectedEnvironmentProfileByProjectId.set(projectId, profileId)
+			selectedEnvironmentProfileByProjectId.set(projectId, profile)
 			upsertProcessSnapshot(runResult)
-			appendProcessLog(projectId, `Ejecutando: ${command}`, 'sys')
+			appendProcessLog({ projectId, processKey: runResult.processKey }, `Ejecutando: ${command}`, 'sys')
 			renderProjects(currentProjects)
 			renderProcessesView()
 			setFeedback(`Comando lanzado: ${command}`, 'success')
 		} catch (error) {
 			setFeedback(error?.message || 'No se pudo ejecutar el comando.', 'error')
+			showToast(error?.message || 'No se pudo ejecutar el comando.', 'error')
 		}
 	}
 
@@ -1347,13 +1456,12 @@ projectsList.addEventListener('click', async (event) => {
 
 	if (actionButton.classList.contains('stop-button')) {
 		try {
-			await window.projectsApi.stop(projectId)
+			await window.projectsApi.stop({ projectId })
 			runningProjectIds.delete(projectId)
 			upsertProcessSnapshot({ projectId, status: 'stopping' })
-			appendProcessLog(projectId, 'Solicitud de detencion enviada.', 'sys')
+			appendProcessLog({ projectId }, 'Solicitud de detencion enviada para todos los procesos.', 'sys')
 			renderProjects(currentProjects)
 			renderProcessesView()
-			setFeedback('Solicitud de detencion enviada.', 'info')
 		} catch (error) {
 			setFeedback(error?.message || 'No se pudo detener el comando.', 'error')
 		}
@@ -1363,8 +1471,29 @@ projectsList.addEventListener('click', async (event) => {
 		setActiveTab('processes')
 	}
 
+	if (actionButton.classList.contains('open-folder-button')) {
+		try {
+			await window.projectsApi.openFolder(projectId)
+		} catch (error) {
+			// Silently fail
+		}
+	}
+
 	if (actionButton.classList.contains('environment-profiles-button')) {
 		openEnvironmentProfilesModal(projectId)
+	}
+
+	if (actionButton.classList.contains('redetect-button')) {
+		try {
+			setFeedback('Re-detectando comandos y perfiles...', 'info')
+			await window.projectsApi.update(projectId, {}, true)
+			await loadProjects()
+			setFeedback('Comandos y perfiles re-detectados.', 'success')
+			showToast('Proyecto actualizado', 'success')
+		} catch (error) {
+			setFeedback(error?.message || 'No se pudo re-detectar.', 'error')
+			showToast(error?.message || 'No se pudo re-detectar.', 'error')
+		}
 	}
 
 	if (actionButton.classList.contains('favorite-button')) {
@@ -1372,8 +1501,10 @@ projectsList.addEventListener('click', async (event) => {
 			await window.projectsApi.toggleFavorite(projectId)
 			await loadProjects()
 			setFeedback('Favorito actualizado.', 'success')
+			showToast('Favorito actualizado', 'success')
 		} catch (error) {
 			setFeedback(error?.message || 'No se pudo actualizar favorito.', 'error')
+			showToast(error?.message || 'No se pudo actualizar favorito.', 'error')
 		}
 	}
 
@@ -1396,8 +1527,10 @@ projectsList.addEventListener('click', async (event) => {
 			processSnapshots.delete(projectId)
 			await loadProjects()
 			setFeedback('Proyecto eliminado correctamente.', 'success')
+			showToast('Proyecto eliminado', 'success')
 		} catch (error) {
 			setFeedback(error?.message || 'No se pudo eliminar el proyecto.', 'error')
+			showToast(error?.message || 'No se pudo eliminar el proyecto.', 'error')
 		}
 	}
 })
@@ -1422,23 +1555,28 @@ window.projectsApi.onRunUpdate((event) => {
 	}
 
 	if (event.status === 'log') {
-		appendProcessLog(event.projectId, event.message, 'out')
+		appendProcessLog({ projectId: event.projectId, processKey: event.processKey }, event.message, 'out')
 	}
 
 	if (event.status === 'error-log') {
-		appendProcessLog(event.projectId, event.message, 'err')
+		appendProcessLog({ projectId: event.projectId, processKey: event.processKey }, event.message, 'err')
 	}
 
 	if (event.status === 'running' || event.status === 'stopping' || event.status === 'stopped' || event.status === 'failed') {
-		appendProcessLog(event.projectId, event.message, 'sys')
+		appendProcessLog({ projectId: event.projectId, processKey: event.processKey }, event.message, 'sys')
+		upsertProcessSnapshot(event)
 	}
 
 	appendProcessEventToTerminalViewer(event)
 
 	renderProcessesView()
 
-	if (event.status === 'running' || event.status === 'failed' || event.status === 'stopped') {
-		setFeedback(event.message, event.status === 'failed' ? 'error' : 'info')
+	if (event.status === 'running') {
+		showToast(event.message, 'success', 3000)
+	}
+
+	if (event.status === 'failed') {
+		showToast(event.message, 'error')
 	}
 })
 

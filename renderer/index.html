@@ -76,6 +76,12 @@
             </header>
             <div class="project-filters">
                 <input id="project-search" type="text" placeholder="Filtrar por nombre o ruta" />
+                <select id="project-sort">
+                    <option value="name">Ordenar por nombre</option>
+                    <option value="path">Ordenar por ruta</option>
+                    <option value="updatedAt">Ordenar por fecha</option>
+                    <option value="favorite">Favoritos primero</option>
+                </select>
                 <label class="favorite-filter">
                     <input id="favorites-only" type="checkbox" />
                     Solo favoritos
@@ -174,6 +180,7 @@
                 </div>
             </article>
         </section>
+        <div id="toast-container"></div>
     </main>
 </body>
 <script src="./app.js"></script>

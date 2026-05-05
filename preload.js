@@ -9,7 +9,7 @@ contextBridge.exposeInMainWorld('versions', {
 contextBridge.exposeInMainWorld('projectsApi', {
     list: () => ipcRenderer.invoke('projects:list'),
     add: (project) => ipcRenderer.invoke('projects:add', project),
-    update: (projectId, project) => ipcRenderer.invoke('projects:update', { projectId, project }),
+    update: (projectId, project, redetect = false) => ipcRenderer.invoke('projects:update', { projectId, project, redetect }),
     delete: (projectId) => ipcRenderer.invoke('projects:delete', { projectId }),
     toggleFavorite: (projectId) => ipcRenderer.invoke('projects:toggle-favorite', { projectId }),
     autoDetectScan: () => ipcRenderer.invoke('projects:auto-detect-scan'),
@@ -20,10 +20,11 @@ contextBridge.exposeInMainWorld('projectsApi', {
     importData: () => ipcRenderer.invoke('projects:import'),
     run: (projectId, command, profileId = '') => ipcRenderer.invoke('projects:run', { projectId, command, profileId }),
     runAll: (projectId, profileId = '') => ipcRenderer.invoke('projects:run-all', { projectId, profileId }),
-    stop: (projectId) => ipcRenderer.invoke('projects:stop', { projectId }),
+    stop: (payload) => ipcRenderer.invoke('projects:stop', payload),
     running: () => ipcRenderer.invoke('projects:running'),
     pickDirectory: () => ipcRenderer.invoke('dialog:pick-directory'),
     pickIcon: () => ipcRenderer.invoke('dialog:pick-icon'),
+    openFolder: (projectId) => ipcRenderer.invoke('projects:open-folder', { projectId }),
     onRunUpdate: (listener) => {
         const subscription = (_event, payload) => listener(payload)
         ipcRenderer.on('projects:run-update', subscription)

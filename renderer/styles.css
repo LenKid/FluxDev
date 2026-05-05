@@ -225,7 +225,7 @@ button {
 .run-button .ui-icon,
 .run-all-button .ui-icon,
 .favorite-button.is-favorite .ui-icon {
-  filter: brightness(0) invert(0);
+  filter: brightness(0) invert(0.2) hue-rotate(30deg) saturate(150%);
 }
 
 .label-on-mobile {
@@ -297,6 +297,7 @@ button.submit {
   background: rgba(8, 16, 8, 0.55);
   display: grid;
   gap: 0.65rem;
+  overflow-y: auto;
 }
 
 .environment-profiles-panel > label {
@@ -404,12 +405,28 @@ button.submit {
   padding: 0.58rem 0.72rem;
 }
 
+#project-sort {
+  border: 1px solid rgba(57, 255, 20, 0.24);
+  background: rgba(4, 9, 4, 0.7);
+  color: var(--text);
+  border-radius: 10px;
+  padding: 0.52rem 0.65rem;
+  cursor: pointer;
+}
+
 .favorite-filter {
   display: inline-flex;
   align-items: center;
   gap: 0.35rem;
   color: #c1d6c7;
   font-size: 0.86rem;
+}
+
+#favorites-only {
+  width: 1.15rem;
+  height: 1.15rem;
+  cursor: pointer;
+  accent-color: var(--primary);
 }
 
 .favorite-button {
@@ -633,7 +650,7 @@ button.submit {
 
 .run-all-button {
   border: 1px solid rgba(255, 209, 102, 0.48);
-  background: linear-gradient(120deg, rgba(255, 209, 102, 0.22), rgba(252, 191, 73, 0.32));
+  background: linear-gradient(120deg, rgba(255, 179, 0, 0.22), rgba(255, 175, 15, 0.522));
   color: #241400;
   font-weight: 700;
 }
@@ -890,8 +907,10 @@ button:disabled {
 }
 
 .process-stop-button {
-  margin-top: 0.5rem;
-  padding: 0.4rem 1rem;
+  padding: 0.45rem 0.85rem;
+  min-height: 2.3rem;
+  display: flex;
+  align-items: center;
   border-radius: 8px;
   border: 1px solid var(--danger);
   background: transparent;
@@ -905,12 +924,68 @@ button:disabled {
   background: var(--danger);
   color: #fff;
 }
-  font-size: 0.8rem;
-  line-height: 1.35;
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 180px;
-  overflow: auto;
+
+.process-actions {
+  margin-top: 0.65rem;
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.process-rerun-button {
+  padding: 0.45rem 0.85rem;
+  min-height: 2.3rem;
+  display: flex;
+  align-items: center;
+  border: 1px solid rgba(255, 209, 102, 0.48);
+  background: linear-gradient(120deg, rgba(255, 209, 102, 0.22), rgba(252, 191, 73, 0.32));
+  color: #ffe7b0;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.process-rerun-button:hover {
+  background: linear-gradient(120deg, rgba(255, 209, 102, 0.35), rgba(252, 191, 73, 0.45));
+}
+
+.process-close-button {
+  width: 2.3rem;
+  height: 2.3rem;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(200, 210, 205, 0.35);
+  background: rgba(200, 210, 205, 0.08);
+  color: #c0cec4;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.process-close-button:hover {
+  background: rgba(200, 210, 205, 0.18);
+}
+
+.button-label {
+  display: inline-block;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 9rem;
+  vertical-align: middle;
+}
+
+.icon-text.icon-button {
+  width: auto;
+  min-width: 2.3rem;
+  padding: 0 0.6rem;
+}
+
+.icon-text .ui-icon {
+  margin-right: 0.4rem;
 }
 
 .empty-state h3 {
@@ -920,6 +995,76 @@ button:disabled {
 .empty-state p {
   margin: 0;
   color: var(--muted);
+}
+
+#toast-container {
+  position: fixed;
+  bottom: 1.5rem;
+  right: 1.5rem;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+  border: 1px solid;
+  font-size: 0.9rem;
+  animation: slideIn 0.3s ease-out;
+  pointer-events: auto;
+  box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+}
+
+.toast-info {
+  background: rgba(57, 255, 20, 0.14);
+  border-color: rgba(57, 255, 20, 0.35);
+  color: #91ff7e;
+}
+
+.toast-success {
+  background: rgba(46, 204, 113, 0.16);
+  border-color: rgba(46, 204, 113, 0.4);
+  color: #7fffc8;
+}
+
+.toast-error {
+  background: rgba(255, 90, 95, 0.18);
+  border-color: rgba(255, 90, 95, 0.4);
+  color: #ffdfe1;
+}
+
+.toast button {
+  margin-left: auto;
+  padding: 0.35rem 0.65rem;
+  font-size: 0.8rem;
+  border: 1px solid currentColor;
+  background: transparent;
+  color: inherit;
+  border-radius: 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.toast button:hover {
+  background: currentColor;
+  color: var(--bg);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(400px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 @media (max-width: 920px) {

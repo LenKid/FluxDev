@@ -107,8 +107,6 @@ fluxdev/
 │   ├── index.html
 │   ├── styles.css
 │   └── app.js
-├── data/
-│   └── projects.json
 └── package.json
 ```
 
@@ -123,9 +121,8 @@ fluxdev/
 ├── renderer/
 │   ├── index.html
 │   ├── styles.css
-│   └── app.js
-├── data/
-│   └── projects.json (legacy / referencia)
+│   ├── app.js
+│   └── terminal-loader.js
 ├── forge.config.js
 └── package.json
 ```
@@ -156,12 +153,10 @@ Modelo usado actualmente:
 
 ## Persistencia (electron-store)
 
-- La fuente activa de datos es electron-store, no data/projects.json.
 - Los proyectos se guardan en el directorio userData del sistema operativo.
 - Al iniciar, se ejecuta una migracion one-shot: si existe projects.json legado en userData y el store esta vacio, se importan esos proyectos.
 - Despues de migrar, el flag interno projectsMigratedFromJson evita repetir la importacion.
 
-Nota: el archivo data/projects.json dentro del repo se mantiene como referencia/compatibilidad, pero no es el storage de runtime.
 
 ---
 
