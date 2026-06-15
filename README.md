@@ -40,6 +40,10 @@ Todo desde una sola interfaz.
 - Iconos por URL (Devicon, Simple Icons) o archivo local
 - Perfiles de entorno por proyecto para reutilizar variables y contexto de ejecucion
 - Persistencia local con electron-store (con migracion automatica desde projects.json legado)
+- Dashboard con estadisticas y actividad reciente
+- Historial de ejecuciones en sesion (filtros por proyecto y estado)
+- Vista Acerca de con informacion del sistema
+- Onboarding para nuevos usuarios
 
 ### En progreso / siguiente
 - Logs mas completos por proceso (historial extendido)
@@ -167,7 +171,9 @@ Modelo usado actualmente:
 3. Pulsa Ejecutar sobre el comando deseado
 4. Monitorea estado y salida en la pestaña Procesos
 5. Usa la pestaña Terminal para escribir comandos manuales dentro del proyecto
-6. Deten el proceso cuando lo necesites
+6. Revisa el historial de ejecuciones en la pestaña Historial
+7. Consulta informacion del sistema en Acerca de
+8. Deten el proceso cuando lo necesites
 
 ---
 
@@ -182,6 +188,10 @@ Modelo usado actualmente:
 - [x] Perfiles de entorno
 - [x] Integracion con Git
 - [x] Exportar / importar configuraciones
+- [x] Dashboard con estadisticas
+- [x] Historial de ejecuciones
+- [x] Vista Acerca de
+- [x] Onboarding para nuevos usuarios
 
 ---
 

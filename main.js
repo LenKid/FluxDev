@@ -1839,6 +1839,13 @@ const registerIpcHandlers = () => {
     await shell.openPath(project.path);
     return { opened: true };
   });
+
+  ipcMain.handle("shell:open-external", async (_event, payload) => {
+    const url = String(payload?.url ?? "").trim();
+    if (!url) return { opened: false };
+    await shell.openExternal(url);
+    return { opened: true };
+  });
 };
 
 const createWindow = () => {

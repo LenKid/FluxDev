@@ -2,8 +2,8 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "fluxdev",
   "productName": "FluxDev",
-  "version": "1.0.0",
-  "description": "Prueba de app de escritorio local",
+  "version": "1.0.6",
+  "description": "Multi-Shells para proyectos de desarrollo locales",
   "repository": {
     "type": "git",
     "url": "fluxdev"

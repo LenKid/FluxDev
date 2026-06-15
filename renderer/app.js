@@ -49,6 +49,33 @@ const tabButtons = document.querySelectorAll('.tab-button')
 const runtimeInfo = document.getElementById('runtime-info')
 const viewModeGridBtn = document.getElementById('view-mode-grid')
 const viewModeCompactBtn = document.getElementById('view-mode-compact')
+const panelForm = document.getElementById('panel-form')
+const dashboardContent = document.getElementById('dashboard-content')
+const dashboardHeader = document.getElementById('dashboard-header')
+const formHeader = document.getElementById('form-header')
+const toggleDashboardBtn = document.getElementById('toggle-dashboard')
+const dashboardAddProjectBtn = document.getElementById('dashboard-add-project')
+const dashboardAutoDetectBtn = document.getElementById('dashboard-auto-detect')
+const dashboardRecentList = document.getElementById('dashboard-recent-list')
+const dashboardRecentEmpty = document.getElementById('dashboard-recent-empty')
+const statTotal = document.getElementById('stat-total')
+const statRunning = document.getElementById('stat-running')
+const statFavorites = document.getElementById('stat-favorites')
+const welcomeOverlay = document.getElementById('welcome-overlay')
+const welcomeStartBtn = document.getElementById('welcome-start')
+const historyView = document.getElementById('history-view')
+const historyList = document.getElementById('history-list')
+const historyEmpty = document.getElementById('history-empty')
+const historySearchInput = document.getElementById('history-search')
+const historyFilterStatus = document.getElementById('history-filter-status')
+const historyClearBtn = document.getElementById('history-clear')
+const aboutView = document.getElementById('about-view')
+const aboutVersion = document.getElementById('about-version')
+const aboutElectron = document.getElementById('about-electron')
+const aboutNode = document.getElementById('about-node')
+const aboutChrome = document.getElementById('about-chrome')
+const aboutOs = document.getElementById('about-os')
+const aboutShell = document.getElementById('about-shell')
 const runningProjectIds = new Set()
 const processSnapshots = new Map()
 const gitSnapshots = new Map()
@@ -75,6 +102,11 @@ let terminalInitialized = false
 let terminalEngineState = 'loading'
 let terminalEngineError = ''
 const TABLER_ICON_BASE = '../public/icons/tabler'
+const executionHistory = []
+const MAX_HISTORY = 100
+let historyFilterTerm = ''
+let historyFilterStatusValue = 'all'
+let showDashboard = true
 
 const renderButtonIcon = (name, label, showMobileLabel = false, showLabel = false) => {
 	const mobileLabel = showMobileLabel ? `<span class="label-on-mobile">${escapeHtml(label)}</span>` : ''
@@ -982,12 +1014,20 @@ const setActiveTab = (tabName) => {
 	const showProcesses = tabName === 'processes'
 	const showTerminal = tabName === 'terminal'
 	const showSettings = tabName === 'settings'
+	const showHistory = tabName === 'history'
+	const showAbout = tabName === 'about'
 
 	projectFilters.classList.toggle('is-hidden', !showProjects)
 	projectsList.classList.toggle('is-hidden', !showProjects)
 	processesView.classList.toggle('is-hidden', !showProcesses)
 	terminalView.classList.toggle('is-hidden', !showTerminal)
 	settingsView.classList.toggle('is-hidden', !showSettings)
+	historyView.classList.toggle('is-hidden', !showHistory)
+	aboutView.classList.toggle('is-hidden', !showAbout)
+
+	if (!showProjects && showDashboard) {
+		toggleDashboard()
+	}
 
 	tabButtons.forEach((button) => {
 		const isSelected = button.dataset.tab === tabName
@@ -998,6 +1038,14 @@ const setActiveTab = (tabName) => {
 	if (showTerminal) {
 		ensureTerminalInstance()
 		fitTerminal()
+	}
+
+	if (showAbout) {
+		populateAboutInfo()
+	}
+
+	if (showHistory) {
+		renderHistoryView()
 	}
 }
 
@@ -1549,6 +1597,8 @@ projectsList.addEventListener('click', async (event) => {
 			selectedEnvironmentProfileByProjectId.set(projectId, profile)
 			upsertProcessSnapshot(runResult)
 			appendProcessLog({ projectId, processKey: runResult.processKey }, `Ejecutando: ${command}`, 'sys')
+			const project = currentProjects.find((p) => p.id === projectId)
+			addToHistory(projectId, project?.name || projectId, command, 'running')
 			renderProjects(currentProjects)
 			renderProcessesView()
 			setFeedback(`Comando lanzado: ${command}`, 'success')
@@ -1700,6 +1750,11 @@ window.projectsApi.onRunUpdate((event) => {
 
 	if (event.status === 'stopping' || event.status === 'stopped' || event.status === 'failed') {
 		runningProjectIds.delete(event.projectId)
+		const historyStatus = event.status === 'failed' ? 'error' : 'complete'
+		const existingEntry = executionHistory.find((e) => e.projectId === event.projectId && e.status === 'running')
+		if (existingEntry) {
+			existingEntry.status = historyStatus
+		}
 		renderProjects(currentProjects)
 	}
 
@@ -1798,12 +1853,298 @@ window.addEventListener('terminal-loaded', () => {
 	fitTerminal()
 })
 
+const populateAboutInfo = () => {
+	const pkg = { version: '1.0.0' }
+	aboutVersion.textContent = `v${pkg.version}`
+	aboutElectron.textContent = window.versions.electron()
+	aboutNode.textContent = window.versions.node()
+	aboutChrome.textContent = window.versions.chrome()
+	aboutOs.textContent = window.projectsApi?.getPlatform?.() || window.versions.platform?.() || 'N/A'
+	aboutShell.textContent = 'PowerShell'
+}
+
+const addToHistory = (projectId, projectName, command, status) => {
+	const entry = {
+		id: Date.now(),
+		projectId,
+		projectName,
+		command,
+		status,
+		timestamp: new Date().toISOString()
+	}
+	executionHistory.unshift(entry)
+	if (executionHistory.length > MAX_HISTORY) {
+		executionHistory.pop()
+	}
+	if (activeTab === 'history') {
+		renderHistoryView()
+	}
+	if (activeTab === 'dashboard') {
+		renderDashboard()
+	}
+}
+
+const renderHistoryView = () => {
+	const filtered = executionHistory.filter((entry) => {
+		const matchesSearch = !historyFilterTerm ||
+			entry.projectName.toLowerCase().includes(historyFilterTerm) ||
+			entry.command.toLowerCase().includes(historyFilterTerm)
+		const matchesStatus = historyFilterStatusValue === 'all' || entry.status === historyFilterStatusValue
+		return matchesSearch && matchesStatus
+	})
+
+	if (filtered.length === 0) {
+		historyList.innerHTML = ''
+		historyEmpty.hidden = false
+		return
+	}
+
+	historyEmpty.hidden = true
+	historyList.innerHTML = filtered.map((entry) => {
+		const time = new Date(entry.timestamp)
+		const timeStr = time.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+		const dateStr = time.toLocaleDateString('es-ES', { day: '2-digit', month: '2-digit' })
+		return `<div class="history-item">
+			<span class="history-status ${escapeHtml(entry.status)}"></span>
+			<div class="history-info">
+				<div class="history-project">${escapeHtml(entry.projectName)}</div>
+				<div class="history-command">${escapeHtml(entry.command)}</div>
+			</div>
+			<span class="history-time">${dateStr} ${timeStr}</span>
+		</div>`
+	}).join('')
+}
+
+const renderDashboard = () => {
+	const total = currentProjects.length
+	const running = runningProjectIds.size
+	const favorites = currentProjects.filter((p) => p.favorite).length
+
+	statTotal.textContent = total
+	statRunning.textContent = running
+	statFavorites.textContent = favorites
+
+	const recent = executionHistory.slice(0, 5)
+	if (recent.length === 0) {
+		dashboardRecentList.innerHTML = ''
+		dashboardRecentEmpty.hidden = false
+	} else {
+		dashboardRecentEmpty.hidden = true
+		dashboardRecentList.innerHTML = recent.map((entry) => {
+			const time = new Date(entry.timestamp)
+			const timeStr = time.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
+			return `<div class="recent-item">
+				<span class="recent-dot ${escapeHtml(entry.status)}"></span>
+				<span class="recent-project">${escapeHtml(entry.projectName)}</span>
+				<span class="recent-command">${escapeHtml(entry.command)}</span>
+				<span class="recent-time">${timeStr}</span>
+			</div>`
+		}).join('')
+	}
+
+	renderStatusChart()
+	renderTopProjectsChart()
+}
+
+let statusChartInstance = null
+let topProjectsChartInstance = null
+
+const renderStatusChart = () => {
+	const ctx = document.getElementById('status-chart')
+	if (!ctx) return
+
+	const completed = executionHistory.filter((e) => e.status === 'complete').length
+	const errors = executionHistory.filter((e) => e.status === 'error').length
+	const runningCount = executionHistory.filter((e) => e.status === 'running').length
+
+	const data = {
+		labels: ['Completado', 'Error', 'Ejecutando'],
+		datasets: [{
+			data: [completed, errors, runningCount],
+			backgroundColor: ['#2ecc71', '#ff5a5f', '#39ff14'],
+			borderColor: ['#27ae60', '#e74c3c', '#2ecc71'],
+			borderWidth: 2,
+			hoverOffset: 8
+		}]
+	}
+
+	if (statusChartInstance) {
+		statusChartInstance.data = data
+		statusChartInstance.update()
+	} else {
+		statusChartInstance = new Chart(ctx, {
+			type: 'doughnut',
+			data,
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				plugins: {
+					legend: {
+						position: 'bottom',
+						labels: {
+							color: '#ebf6eb',
+							padding: 12,
+							font: { size: 11 }
+						}
+					}
+				},
+				cutout: '65%'
+			}
+		})
+	}
+}
+
+const renderTopProjectsChart = () => {
+	const ctx = document.getElementById('top-projects-chart')
+	if (!ctx) return
+
+	const projectCounts = {}
+	executionHistory.forEach((entry) => {
+		if (!projectCounts[entry.projectName]) {
+			projectCounts[entry.projectName] = 0
+		}
+		projectCounts[entry.projectName]++
+	})
+
+	const sorted = Object.entries(projectCounts)
+		.sort((a, b) => b[1] - a[1])
+		.slice(0, 5)
+
+	const labels = sorted.map(([name]) => name)
+	const data = sorted.map(([, count]) => count)
+
+	const chartData = {
+		labels,
+		datasets: [{
+			label: 'Ejecuciones',
+			data,
+			backgroundColor: 'rgba(57, 255, 20, 0.3)',
+			borderColor: '#39ff14',
+			borderWidth: 2,
+			borderRadius: 6
+		}]
+	}
+
+	if (topProjectsChartInstance) {
+		topProjectsChartInstance.data = chartData
+		topProjectsChartInstance.update()
+	} else {
+		topProjectsChartInstance = new Chart(ctx, {
+			type: 'bar',
+			data: chartData,
+			options: {
+				responsive: true,
+				maintainAspectRatio: false,
+				indexAxis: 'y',
+				plugins: {
+					legend: { display: false }
+				},
+				scales: {
+					x: {
+						beginAtZero: true,
+						ticks: {
+							color: '#8fb09a',
+							stepSize: 1
+						},
+						grid: {
+							color: 'rgba(57, 255, 20, 0.08)'
+						}
+					},
+					y: {
+						ticks: {
+							color: '#ebf6eb',
+							font: { size: 11 }
+						},
+						grid: { display: false }
+					}
+				}
+			}
+		})
+	}
+}
+
+const showWelcomeIfNeeded = () => {
+	const onboarded = localStorage.getItem('fluxdev_onboarded')
+	if (!onboarded) {
+		welcomeOverlay.classList.remove('is-hidden')
+		welcomeOverlay.setAttribute('aria-hidden', 'false')
+	}
+}
+
+const dismissWelcome = () => {
+	localStorage.setItem('fluxdev_onboarded', '1')
+	welcomeOverlay.classList.add('is-hidden')
+	welcomeOverlay.setAttribute('aria-hidden', 'true')
+}
+
+welcomeStartBtn?.addEventListener('click', dismissWelcome)
+
+historySearchInput?.addEventListener('input', (event) => {
+	historyFilterTerm = event.target.value.trim().toLowerCase()
+	renderHistoryView()
+})
+
+historyFilterStatus?.addEventListener('change', (event) => {
+	historyFilterStatusValue = event.target.value
+	renderHistoryView()
+})
+
+historyClearBtn?.addEventListener('click', () => {
+	executionHistory.length = 0
+	renderHistoryView()
+})
+
+dashboardAddProjectBtn?.addEventListener('click', () => {
+	if (showDashboard) {
+		toggleDashboard()
+	}
+})
+
+dashboardAutoDetectBtn?.addEventListener('click', () => {
+	if (showDashboard) {
+		toggleDashboard()
+	}
+	autoDetectButton?.click()
+})
+
+const toggleDashboard = () => {
+	showDashboard = !showDashboard
+	form.classList.toggle('is-hidden', showDashboard)
+	formHeader.classList.toggle('is-hidden', showDashboard)
+	dashboardContent.classList.toggle('is-hidden', !showDashboard)
+	dashboardHeader.classList.toggle('is-hidden', !showDashboard)
+	if (showDashboard) {
+		renderDashboard()
+	}
+}
+
+toggleDashboardBtn?.addEventListener('click', toggleDashboard)
+
+const refreshChartsBtn = document.getElementById('refresh-charts')
+refreshChartsBtn?.addEventListener('click', () => {
+	if (statusChartInstance) {
+		statusChartInstance.destroy()
+		statusChartInstance = null
+	}
+	if (topProjectsChartInstance) {
+		topProjectsChartInstance.destroy()
+		topProjectsChartInstance = null
+	}
+	renderDashboard()
+})
+
 runtimeInfo.textContent = `Chrome ${window.versions.chrome()} | Node ${window.versions.node()} | Electron ${window.versions.electron()}`
 setFeedback('Guarda iconos por URL (Devicon/Simple Icons) o selecciona un archivo local.', 'info')
 resetFormMode()
 setActiveTab(activeTab)
 syncViewSwitcherButtons()
-loadProjects().then(updateRunningFromSystem)
+showWelcomeIfNeeded()
+loadProjects().then(() => {
+	updateRunningFromSystem()
+	if (showDashboard) {
+		renderDashboard()
+	}
+})
 
 document.addEventListener('click', (event) => {
 	if (!event.target.closest('.project-menu')) {
@@ -1814,5 +2155,16 @@ document.addEventListener('click', (event) => {
 document.addEventListener('keydown', (event) => {
 	if (event.key === 'Escape') {
 		document.querySelectorAll('.project-menu-dropdown.is-open').forEach((d) => d.classList.remove('is-open'))
+	}
+})
+
+document.addEventListener('click', (event) => {
+	const link = event.target.closest('[data-external-url]')
+	if (link) {
+		event.preventDefault()
+		const url = link.dataset.externalUrl
+		if (url) {
+			window.projectsApi.openExternal(url)
+		}
 	}
 })

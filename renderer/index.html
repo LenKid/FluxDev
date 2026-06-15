@@ -3,27 +3,38 @@
 
 <head>
     <meta charset="UTF-8" />
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org; worker-src 'self' blob:; connect-src 'self' blob: data:" />
-    <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval'; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org; worker-src 'self' blob:; connect-src 'self' blob: data:" />
+    <meta http-equiv="X-Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.jsdelivr.net; img-src 'self' data: file: https://cdn.jsdelivr.net https://cdn.simpleicons.org; worker-src 'self' blob:; connect-src 'self' blob: data:" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>FluxDev | Proyectos Locales</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
     <link rel="stylesheet" href="./styles.css" />
 </head>
 
 <body>
     <script type="module" src="./terminal-loader.js"></script>
     <main class="layout">
-        <section class="panel panel-form">
+        <section class="panel panel-form" id="panel-form">
             <header>
                 <div class="brand-row">
                     <img src="../public/FluxLogo.png" alt="FluxDev" class="brand-logo" />
                     <span class="brand-name">FluxDev</span>
+                    <button type="button" id="toggle-dashboard" class="icon-button toggle-dashboard-btn" title="Cambiar vista" aria-label="Cambiar vista">
+                        <img class="ui-icon" src="../public/icons/tabler/layout-dashboard.svg" alt="" aria-hidden="true" />
+                        <span class="sr-only">Cambiar vista</span>
+                    </button>
                 </div>
-                <h1 id="form-title">Agrega proyectos locales</h1>
-                <p id="form-subtitle" class="subtitle">Guarda nombre, ruta, varios comandos e icono para ejecutar mas rapido.</p>
+                <div id="form-header" class="is-hidden">
+                    <h1 id="form-title">Agrega proyectos locales</h1>
+                    <p id="form-subtitle" class="subtitle">Guarda nombre, ruta, varios comandos e icono para ejecutar mas rapido.</p>
+                </div>
+                <div id="dashboard-header">
+                    <h1>Dashboard</h1>
+                    <p class="subtitle">Resumen de tu entorno de desarrollo.</p>
+                </div>
             </header>
 
-            <form id="project-form">
+            <form id="project-form" class="is-hidden">
                 <label for="name">Nombre del proyecto</label>
                 <input id="name" name="name" type="text" placeholder="Mi App" required />
 
@@ -67,6 +78,52 @@
                 </div>
                 <p id="feedback" class="feedback" data-type="info"></p>
             </form>
+            <div id="dashboard-content" class="dashboard-content">
+                <div class="dashboard-stats">
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-total">0</span>
+                        <span class="stat-label">Proyectos</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-running">0</span>
+                        <span class="stat-label">Ejecutando</span>
+                    </div>
+                    <div class="stat-card">
+                        <span class="stat-value" id="stat-favorites">0</span>
+                        <span class="stat-label">Favoritos</span>
+                    </div>
+                </div>
+                <div class="dashboard-actions">
+                    <button type="button" id="dashboard-add-project" class="dashboard-action">
+                        <img class="ui-icon" src="../public/icons/tabler/plus.svg" alt="" aria-hidden="true" />
+                        <span>Agregar proyecto</span>
+                    </button>
+                    <button type="button" id="dashboard-auto-detect" class="dashboard-action">
+                        <img class="ui-icon" src="../public/icons/tabler/scan.svg" alt="" aria-hidden="true" />
+                        <span>Auto-detectar</span>
+                    </button>
+                </div>
+                <div class="dashboard-charts">
+                    <div class="chart-container">
+                        <div class="chart-header">
+                            <h3>Status de procesos</h3>
+                            <button type="button" id="refresh-charts" class="icon-button" title="Recargar graficos" aria-label="Recargar graficos">
+                                <img class="ui-icon" src="../public/icons/tabler/refresh.svg" alt="" aria-hidden="true" />
+                            </button>
+                        </div>
+                        <canvas id="status-chart"></canvas>
+                    </div>
+                    <div class="chart-container">
+                        <h3>Top proyectos</h3>
+                        <canvas id="top-projects-chart"></canvas>
+                    </div>
+                </div>
+                <div class="dashboard-recent">
+                    <h3>Actividad reciente</h3>
+                    <div id="dashboard-recent-list" class="dashboard-recent-list"></div>
+                    <p id="dashboard-recent-empty" class="dashboard-recent-empty">No hay actividad reciente en esta sesion.</p>
+                </div>
+            </div>
         </section>
 
         <section class="panel panel-list">
@@ -113,7 +170,9 @@
                 <button type="button" class="tab-button is-active" data-tab="projects" role="tab" aria-selected="true">Proyectos</button>
                 <button type="button" class="tab-button" data-tab="processes" role="tab" aria-selected="false">Procesos</button>
                 <button type="button" class="tab-button" data-tab="terminal" role="tab" aria-selected="false">Terminal</button>
+                <button type="button" class="tab-button" data-tab="history" role="tab" aria-selected="false">Historial</button>
                 <button type="button" class="tab-button" data-tab="settings" role="tab" aria-selected="false">Ajustes</button>
+                <button type="button" class="tab-button" data-tab="about" role="tab" aria-selected="false">Acerca de</button>
             </div>
             <section id="projects-list" class="projects-list tab-panel"></section>
             <section id="processes-view" class="processes-view tab-panel is-hidden"></section>
@@ -157,6 +216,60 @@
                         </button>
                     </div>
                 </article>
+            </section>
+            <section id="history-view" class="history-view tab-panel is-hidden">
+                <div class="history-header">
+                    <h3>Historial de ejecuciones</h3>
+                    <button type="button" id="history-clear" class="icon-button" title="Limpiar historial" aria-label="Limpiar historial">
+                        <img class="ui-icon" src="../public/icons/tabler/trash.svg" alt="" aria-hidden="true" />
+                        <span class="sr-only">Limpiar historial</span>
+                    </button>
+                </div>
+                <div class="history-filters">
+                    <input id="history-search" type="text" placeholder="Filtrar por proyecto o comando" />
+                    <select id="history-filter-status">
+                        <option value="all">Todos los estados</option>
+                        <option value="running">En ejecucion</option>
+                        <option value="complete">Completado</option>
+                        <option value="error">Error</option>
+                    </select>
+                </div>
+                <div id="history-list" class="history-list"></div>
+                <p id="history-empty" class="history-empty">No hay ejecuciones en el historial de esta sesion.</p>
+            </section>
+            <section id="about-view" class="about-view tab-panel is-hidden">
+                <div class="about-card">
+                    <img src="../public/FluxLogo.png" alt="FluxDev" class="about-logo" />
+                    <h2>FluxDev</h2>
+                    <p class="about-version" id="about-version">v1.0.0</p>
+                    <p class="about-tagline">Run your projects. Instantly.</p>
+                    <div class="about-info">
+                        <div class="about-row">
+                            <span class="about-label">Electron</span>
+                            <span id="about-electron" class="about-value">-</span>
+                        </div>
+                        <div class="about-row">
+                            <span class="about-label">Node.js</span>
+                            <span id="about-node" class="about-value">-</span>
+                        </div>
+                        <div class="about-row">
+                            <span class="about-label">Chrome</span>
+                            <span id="about-chrome" class="about-value">-</span>
+                        </div>
+                        <div class="about-row">
+                            <span class="about-label">Sistema</span>
+                            <span id="about-os" class="about-value">-</span>
+                        </div>
+                        <div class="about-row">
+                            <span class="about-label">Shell</span>
+                            <span id="about-shell" class="about-value">-</span>
+                        </div>
+                    </div>
+                    <div class="about-links">
+                        <a href="https://github.com" target="_blank" rel="noopener" class="about-link" data-external-url="https://github.com">GitHub</a>
+                        <a href="https://electronjs.org/docs" target="_blank" rel="noopener" class="about-link" data-external-url="https://electronjs.org/docs">Documentacion</a>
+                    </div>
+                </div>
             </section>
         </section>
 
@@ -204,6 +317,44 @@
         </section>
         <div id="toast-container"></div>
     </main>
+
+    <section id="welcome-overlay" class="welcome-overlay is-hidden" aria-hidden="true">
+        <article class="welcome-card">
+            <img src="../public/FluxLogo.png" alt="FluxDev" class="welcome-logo" />
+            <h1>Bienvenido a FluxDev</h1>
+            <p class="welcome-subtitle">Centraliza y ejecuta tus proyectos locales sin abrir multiples terminales.</p>
+            <div class="welcome-tips">
+                <div class="welcome-tip">
+                    <span class="welcome-tip-icon">1</span>
+                    <div>
+                        <strong>Agrega proyectos</strong>
+                        <p>Nombre, ruta, comandos e icono.</p>
+                    </div>
+                </div>
+                <div class="welcome-tip">
+                    <span class="welcome-tip-icon">2</span>
+                    <div>
+                        <strong>Ejecuta comandos</strong>
+                        <p>Un click para iniciar todo el stack.</p>
+                    </div>
+                </div>
+                <div class="welcome-tip">
+                    <span class="welcome-tip-icon">3</span>
+                    <div>
+                        <strong>Monitorea procesos</strong>
+                        <p>Estado, PID y salida en tiempo real.</p>
+                    </div>
+                </div>
+            </div>
+            <div class="welcome-shortcuts">
+                <h3>Atajos de teclado</h3>
+                <div class="shortcut-row"><kbd>Ctrl</kbd>+<kbd>N</kbd> Nuevo proyecto</div>
+                <div class="shortcut-row"><kbd>Ctrl</kbd>+<kbd>D</kbd> Auto-detectar</div>
+                <div class="shortcut-row"><kbd>Ctrl</kbd>+<kbd>E</kbd> Exportar datos</div>
+            </div>
+            <button type="button" id="welcome-start" class="welcome-start">Comenzar</button>
+        </article>
+    </section>
 </body>
 <script src="./app.js"></script>
 
