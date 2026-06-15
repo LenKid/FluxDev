@@ -13,6 +13,7 @@ const icons = [
   'chevron-right.svg',
   'device-floppy.svg',
   'download.svg',
+  'dots-vertical.svg',
   'edit.svg',
   'eraser.svg',
   'folder.svg',
