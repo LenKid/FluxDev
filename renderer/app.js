@@ -47,6 +47,8 @@ const terminalContainer = document.getElementById('terminal-container')
 const terminalStatus = document.getElementById('terminal-status')
 const tabButtons = document.querySelectorAll('.tab-button')
 const runtimeInfo = document.getElementById('runtime-info')
+const viewModeGridBtn = document.getElementById('view-mode-grid')
+const viewModeCompactBtn = document.getElementById('view-mode-compact')
 const runningProjectIds = new Set()
 const processSnapshots = new Map()
 const gitSnapshots = new Map()
@@ -61,6 +63,8 @@ let activeTab = 'projects'
 let projectSearchTerm = ''
 let favoritesOnly = false
 let projectSortBy = 'name'
+let projectViewMode = localStorage.getItem('fluxdev_project_view_mode') || 'grid'
+const expandedProjectIds = new Set()
 let detectedCandidates = []
 let terminalSessionId = null
 let terminalInstance = null
@@ -76,6 +80,20 @@ const renderButtonIcon = (name, label, showMobileLabel = false, showLabel = fals
 	const mobileLabel = showMobileLabel ? `<span class="label-on-mobile">${escapeHtml(label)}</span>` : ''
 	const visibleLabel = showLabel ? `<span class="button-label">${escapeHtml(label)}</span>` : ''
 	return `<img class="ui-icon" src="${TABLER_ICON_BASE}/${escapeHtml(name)}.svg" alt="" aria-hidden="true" />${visibleLabel}${mobileLabel}<span class="sr-only">${escapeHtml(label)}</span>`
+}
+
+const renderProjectMenu = (projectId) => {
+	return `
+		<div class="project-menu">
+			<button type="button" class="project-menu-trigger icon-button" title="Mas opciones" aria-label="Mas opciones" data-menu-project="${escapeHtml(projectId)}">${renderButtonIcon('dots-vertical', 'Opciones')}</button>
+			<div class="project-menu-dropdown" data-menu-dropdown="${escapeHtml(projectId)}">
+				<button type="button" class="project-menu-item edit-button" data-menu-action="edit">${renderButtonIcon('edit', 'Editar')} Editar</button>
+				<button type="button" class="project-menu-item" data-menu-action="redetect">${renderButtonIcon('refresh', 'Re-detectar')} Re-detectar</button>
+				<button type="button" class="project-menu-item" data-menu-action="open-folder">${renderButtonIcon('folder', 'Abrir carpeta')} Abrir carpeta</button>
+				<button type="button" class="project-menu-item danger" data-menu-action="delete">${renderButtonIcon('trash', 'Eliminar')} Eliminar</button>
+			</div>
+		</div>
+	`
 }
 
 const parseCommands = (commandsRaw) => {
@@ -439,12 +457,15 @@ const toDisplayProjects = (projects) => {
 			return name.includes(searchTerm) || path.includes(searchTerm)
 		})
 		.sort((a, b) => {
-			const favDelta = Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
-			if (favDelta !== 0) {
-				return favDelta
+			const sortBy = projectSortSelect?.value || projectSortBy
+
+			if (sortBy === 'favorite') {
+				const favDelta = Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
+				if (favDelta !== 0) {
+					return favDelta
+				}
 			}
 
-			const sortBy = projectSortSelect?.value || projectSortBy
 			if (sortBy === 'path') {
 				return String(a.path).localeCompare(String(b.path))
 			}
@@ -452,9 +473,6 @@ const toDisplayProjects = (projects) => {
 				const dateA = new Date(a.updatedAt || 0).getTime()
 				const dateB = new Date(b.updatedAt || 0).getTime()
 				return dateB - dateA
-			}
-			if (sortBy === 'favorite') {
-				return Number(Boolean(b.favorite)) - Number(Boolean(a.favorite))
 			}
 			return String(a.name).localeCompare(String(b.name))
 		})
@@ -880,10 +898,10 @@ const renderProcessesView = () => {
 				? item.logs.map((line) => escapeHtml(line)).join('\n')
 				: 'Sin salida aun.'
 			const stopButton = isRunning
-				? `<button type="button" class="process-stop-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}">Detener</button>`
-				: `<button type="button" class="process-stop-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}" disabled>Detener</button>`
+				? `<button type="button" class="process-stop-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}">${renderButtonIcon('player-stop', 'Detener')}</button>`
+				: `<button type="button" class="process-stop-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}" disabled>${renderButtonIcon('player-stop', 'Detener')}</button>`
 			const rerunButton = item.command
-				? `<button type="button" class="process-rerun-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}">Re-ejecutar</button>`
+				? `<button type="button" class="process-rerun-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}">${renderButtonIcon('refresh', 'Re-ejecutar')}</button>`
 				: ''
 			const closeButton = `<button type="button" class="process-close-button" data-project-id="${item.projectId}" data-process-key="${processKey}" title="Cerrar">${renderButtonIcon('x', 'Cerrar')}</button>`
 
@@ -1034,6 +1052,9 @@ const renderProjects = (projects) => {
 		return
 	}
 
+	projectsList.classList.toggle('view-grid', projectViewMode === 'grid')
+	projectsList.classList.toggle('view-compact', projectViewMode === 'compact')
+
 	projectsList.innerHTML = visibleProjects
 		.map((project) => {
 			const isFavorite = Boolean(project.favorite)
@@ -1046,49 +1067,121 @@ const renderProjects = (projects) => {
 			const iconLabel = iconUrl ? escapeHtml(iconUrl) : 'Sin icono'
 			const environmentProfiles = Array.isArray(project.environmentProfiles) ? project.environmentProfiles : []
 
-			return `
-				<article class="project-card" data-project-id="${escapeHtml(project.id)}" title="${escapeHtml(project.path)}">
-					<header>
-						<div class="card-title-wrap">
-							${iconMarkup}
-							<div>
-								<h3>${escapeHtml(project.name)}</h3>
-								<p class="project-path-label">${escapeHtml(project.path)}</p>
+			if (projectViewMode === 'compact') {
+				const isExpanded = expandedProjectIds.has(project.id)
+				const expandClass = isExpanded ? 'is-expanded' : ''
+				const statusClass = isRunning ? 'status running' : 'status idle'
+				const statusLabel = isRunning ? 'En ejecucion' : 'Detenido'
+				const favoriteClass = isFavorite ? 'is-favorite' : ''
+
+				return `
+					<article class="project-card view-compact ${expandClass} ${favoriteClass}" data-project-id="${escapeHtml(project.id)}" title="${escapeHtml(project.path)}">
+						<header class="compact-header">
+							<div class="card-title-wrap">
+								${iconMarkup}
+								<div>
+									<h3>${escapeHtml(project.name)}</h3>
+									<p class="project-path-label">${escapeHtml(project.path)}</p>
+								</div>
 							</div>
+							<div class="compact-header-meta">
+								<span class="${statusClass}">${statusLabel}</span>
+								<span class="compact-git-badge">${escapeHtml(getGitSummary(project.id))}</span>
+								<svg class="chevron-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+									<polyline points="6 9 12 15 18 9"></polyline>
+								</svg>
+							</div>
+						</header>
+						<div class="compact-details">
+							<section>
+								<h4>Comandos</h4>
+								<div class="run-controls">
+									<select class="command-select">${formatCommandOptions(project.commands)}</select>
+									<button type="button" class="run-button icon-button" title="Ejecutar comando" aria-label="Ejecutar comando">${renderButtonIcon('player-play', 'Ejecutar')}</button>
+									<button type="button" class="run-all-button icon-button" title="Ejecutar todos" aria-label="Ejecutar todos">${renderButtonIcon('player-track-next', 'Multi-run')}</button>
+									<button type="button" class="stop-button icon-button has-mobile-label" ${isRunning ? '' : 'disabled'} title="Detener" aria-label="Detener">${renderButtonIcon('player-stop', 'Detener', true)}</button>
+								</div>
+								<div class="manage-controls">
+									<button type="button" class="favorite-button icon-button ${isFavorite ? 'is-favorite' : ''}" title="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}" aria-label="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}">${renderButtonIcon('star', isFavorite ? 'Quitar' : 'Favorito')}</button>
+									<button type="button" class="view-process-button icon-button icon-text" title="Ver proceso" aria-label="Ver proceso">${renderButtonIcon('screen-share', 'Proceso', false, true)}</button>
+									<button type="button" class="environment-profiles-button icon-button icon-text" title="Perfiles de entorno" aria-label="Perfiles de entorno">${renderButtonIcon('binary-tree-2', 'Perfiles', false, true)}</button>
+									${renderProjectMenu(project.id)}
+								</div>
+								<div class="project-profile-runner">
+									<label>Perfil de entorno</label>
+									<select class="profile-select">
+										${environmentProfiles.length ? environmentProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === activeProfileId ? 'selected' : ''}>${escapeHtml(profile.name || 'Perfil')}</option>`).join('') : '<option value="">Sin perfil</option>'}
+									</select>
+								</div>
+								<p class="project-meta">${escapeHtml(getGitSummary(project.id))}</p>
+							</section>
+							<footer>
+								<span>Icono: ${iconLabel}</span>
+							</footer>
 						</div>
-					</header>
-					<section>
-						<h4>Comandos</h4>
-						<div class="run-controls">
-							<select class="command-select">${formatCommandOptions(project.commands)}</select>
-							<button type="button" class="run-button icon-button" title="Ejecutar comando" aria-label="Ejecutar comando">${renderButtonIcon('player-play', 'Ejecutar comando')}</button>
-							<button type="button" class="run-all-button icon-button" title="Ejecutar todos" aria-label="Ejecutar todos">${renderButtonIcon('player-track-next', 'Ejecutar todos')}</button>
-							<button type="button" class="stop-button icon-button has-mobile-label" ${isRunning ? '' : 'disabled'} title="Detener" aria-label="Detener">${renderButtonIcon('player-stop', 'Detener', true)}</button>
-						</div>
-						<div class="manage-controls">
-							<button type="button" class="favorite-button icon-button ${isFavorite ? 'is-favorite' : ''}" title="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}" aria-label="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}">${renderButtonIcon('star', isFavorite ? 'Quitar favorito' : 'Marcar favorito')}</button>
-							<button type="button" class="open-folder-button icon-button" title="Abrir carpeta" aria-label="Abrir carpeta">${renderButtonIcon('folder', 'Abrir carpeta')}</button>
-							<button type="button" class="view-process-button icon-button icon-text" title="Ver proceso" aria-label="Ver proceso">${renderButtonIcon('screen-share', 'Ver proceso', false, true)}</button>
-							<button type="button" class="environment-profiles-button icon-button icon-text" title="Perfiles de entorno" aria-label="Perfiles de entorno">${renderButtonIcon('binary-tree-2', 'Perfiles de entorno', false, true)}</button>
-							<button type="button" class="redetect-button icon-button" title="Re-detectar comandos y perfiles" aria-label="Re-detectar">${renderButtonIcon('refresh', 'Re-detectar')}</button>
-							<button type="button" class="edit-button icon-button" title="Editar proyecto" aria-label="Editar proyecto">${renderButtonIcon('edit', 'Editar proyecto')}</button>
-							<button type="button" class="delete-button icon-button has-mobile-label" title="Eliminar proyecto" aria-label="Eliminar proyecto">${renderButtonIcon('trash', 'Eliminar', true)}</button>
-						</div>
-						<div class="project-profile-runner">
-							<label>Perfil de entorno</label>
-							<select class="profile-select">
-								${environmentProfiles.length ? environmentProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === activeProfileId ? 'selected' : ''}>${escapeHtml(profile.name || 'Perfil')}</option>`).join('') : '<option value="">Sin perfil</option>'}
-							</select>
-						</div>
-						<p class="project-meta">${escapeHtml(getGitSummary(project.id))}</p>
-					</section>
-					<footer>
-						<span>Icono: ${iconLabel}</span>
-					</footer>
-				</article>
-			`
+					</article>
+				`
+			} else {
+				const favoriteClass = isFavorite ? 'is-favorite' : ''
+				return `
+					<article class="project-card ${favoriteClass}" data-project-id="${escapeHtml(project.id)}" title="${escapeHtml(project.path)}">
+						<header>
+							<div class="card-title-wrap">
+								${iconMarkup}
+								<div>
+									<h3>${escapeHtml(project.name)}</h3>
+									<p class="project-path-label">${escapeHtml(project.path)}</p>
+								</div>
+							</div>
+						</header>
+						<section>
+							<h4>Comandos</h4>
+							<div class="run-controls">
+								<select class="command-select">${formatCommandOptions(project.commands)}</select>
+								<button type="button" class="run-button icon-button" title="Ejecutar comando" aria-label="Ejecutar comando">${renderButtonIcon('player-play', 'Ejecutar comando')}</button>
+								<button type="button" class="run-all-button icon-button" title="Ejecutar todos" aria-label="Ejecutar todos">${renderButtonIcon('player-track-next', 'Ejecutar todos')}</button>
+								<button type="button" class="stop-button icon-button has-mobile-label" ${isRunning ? '' : 'disabled'} title="Detener" aria-label="Detener">${renderButtonIcon('player-stop', 'Detener', true)}</button>
+							</div>
+							<div class="manage-controls">
+								<button type="button" class="favorite-button icon-button ${isFavorite ? 'is-favorite' : ''}" title="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}" aria-label="${isFavorite ? 'Quitar favorito' : 'Marcar favorito'}">${renderButtonIcon('star', isFavorite ? 'Quitar favorito' : 'Marcar favorito')}</button>
+								<button type="button" class="view-process-button icon-button icon-text" title="Ver proceso" aria-label="Ver proceso">${renderButtonIcon('screen-share', 'Ver proceso', false, true)}</button>
+								<button type="button" class="environment-profiles-button icon-button icon-text" title="Perfiles de entorno" aria-label="Perfiles de entorno">${renderButtonIcon('binary-tree-2', 'Perfiles de entorno', false, true)}</button>
+								${renderProjectMenu(project.id)}
+							</div>
+							<div class="project-profile-runner">
+								<label>Perfil de entorno</label>
+								<select class="profile-select">
+									${environmentProfiles.length ? environmentProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === activeProfileId ? 'selected' : ''}>${escapeHtml(profile.name || 'Perfil')}</option>`).join('') : '<option value="">Sin perfil</option>'}
+								</select>
+							</div>
+							<p class="project-meta">${escapeHtml(getGitSummary(project.id))}</p>
+						</section>
+						<footer>
+							<span>Icono: ${iconLabel}</span>
+						</footer>
+					</article>
+				`
+			}
 		})
 		.join('')
+
+	if (projectViewMode === 'compact') {
+		projectsList.querySelectorAll('.compact-header').forEach((header) => {
+			header.addEventListener('click', (event) => {
+				const card = header.closest('.project-card')
+				const projectId = card.dataset.projectId
+				const isExpanded = expandedProjectIds.has(projectId)
+
+				if (isExpanded) {
+					expandedProjectIds.delete(projectId)
+					card.classList.remove('is-expanded')
+				} else {
+					expandedProjectIds.add(projectId)
+					card.classList.add('is-expanded')
+				}
+			})
+		})
+	}
 }
 
 const loadProjects = async () => {
@@ -1170,6 +1263,27 @@ terminalOpenExternalButton?.addEventListener('click', openExternalTerminalSessio
 terminalOpenButton?.addEventListener('click', openTerminalSession)
 terminalClearButton?.addEventListener('click', clearTerminalSession)
 terminalCloseButton?.addEventListener('click', closeTerminalSession)
+
+const syncViewSwitcherButtons = () => {
+	if (viewModeGridBtn && viewModeCompactBtn) {
+		viewModeGridBtn.classList.toggle('is-active', projectViewMode === 'grid')
+		viewModeCompactBtn.classList.toggle('is-active', projectViewMode === 'compact')
+	}
+}
+
+viewModeGridBtn?.addEventListener('click', () => {
+	projectViewMode = 'grid'
+	localStorage.setItem('fluxdev_project_view_mode', 'grid')
+	syncViewSwitcherButtons()
+	renderProjects(currentProjects)
+})
+
+viewModeCompactBtn?.addEventListener('click', () => {
+	projectViewMode = 'compact'
+	localStorage.setItem('fluxdev_project_view_mode', 'compact')
+	syncViewSwitcherButtons()
+	renderProjects(currentProjects)
+})
 
 projectSearchInput.addEventListener('input', () => {
 	projectSearchTerm = projectSearchInput.value
@@ -1508,30 +1622,71 @@ projectsList.addEventListener('click', async (event) => {
 		}
 	}
 
-	if (actionButton.classList.contains('edit-button')) {
-		startEditMode(projectId)
+	if (actionButton.classList.contains('project-menu-trigger')) {
+		const dropdown = card.querySelector(`.project-menu-dropdown[data-menu-dropdown="${projectId}"]`)
+		if (dropdown) {
+			const wasOpen = dropdown.classList.contains('is-open')
+			document.querySelectorAll('.project-menu-dropdown.is-open').forEach((d) => d.classList.remove('is-open'))
+			if (!wasOpen) {
+				dropdown.classList.add('is-open')
+			}
+		}
+		return
 	}
 
-	if (actionButton.classList.contains('delete-button')) {
-		const confirmDelete = window.confirm('Este proyecto se eliminara. Deseas continuar?')
-		if (!confirmDelete) {
-			return
+	if (actionButton.closest('.project-menu-item')) {
+		const menuItem = actionButton.closest('.project-menu-item')
+		const action = menuItem.dataset.menuAction
+
+		if (action === 'edit') {
+			startEditMode(projectId)
 		}
 
-		try {
-			await window.projectsApi.delete(projectId)
-			if (editingProjectId === projectId) {
-				form.reset()
-				resetFormMode()
+		if (action === 'redetect') {
+			try {
+				setFeedback('Re-detectando comandos y perfiles...', 'info')
+				await window.projectsApi.update(projectId, {}, true)
+				await loadProjects()
+				setFeedback('Comandos y perfiles re-detectados.', 'success')
+				showToast('Proyecto actualizado', 'success')
+			} catch (error) {
+				setFeedback(error?.message || 'No se pudo re-detectar.', 'error')
+				showToast(error?.message || 'No se pudo re-detectar.', 'error')
 			}
-			processSnapshots.delete(projectId)
-			await loadProjects()
-			setFeedback('Proyecto eliminado correctamente.', 'success')
-			showToast('Proyecto eliminado', 'success')
-		} catch (error) {
-			setFeedback(error?.message || 'No se pudo eliminar el proyecto.', 'error')
-			showToast(error?.message || 'No se pudo eliminar el proyecto.', 'error')
 		}
+
+		if (action === 'open-folder') {
+			try {
+				await window.projectsApi.openFolder(projectId)
+			} catch (error) {
+				// Silently fail
+			}
+		}
+
+		if (action === 'delete') {
+			const confirmDelete = window.confirm('Este proyecto se eliminara. Deseas continuar?')
+			if (!confirmDelete) {
+				return
+			}
+
+			try {
+				await window.projectsApi.delete(projectId)
+				if (editingProjectId === projectId) {
+					form.reset()
+					resetFormMode()
+				}
+				processSnapshots.delete(projectId)
+				await loadProjects()
+				setFeedback('Proyecto eliminado correctamente.', 'success')
+				showToast('Proyecto eliminado', 'success')
+			} catch (error) {
+				setFeedback(error?.message || 'No se pudo eliminar el proyecto.', 'error')
+				showToast(error?.message || 'No se pudo eliminar el proyecto.', 'error')
+			}
+		}
+
+		document.querySelectorAll('.project-menu-dropdown.is-open').forEach((d) => d.classList.remove('is-open'))
+		return
 	}
 })
 
@@ -1647,4 +1802,17 @@ runtimeInfo.textContent = `Chrome ${window.versions.chrome()} | Node ${window.ve
 setFeedback('Guarda iconos por URL (Devicon/Simple Icons) o selecciona un archivo local.', 'info')
 resetFormMode()
 setActiveTab(activeTab)
+syncViewSwitcherButtons()
 loadProjects().then(updateRunningFromSystem)
+
+document.addEventListener('click', (event) => {
+	if (!event.target.closest('.project-menu')) {
+		document.querySelectorAll('.project-menu-dropdown.is-open').forEach((d) => d.classList.remove('is-open'))
+	}
+})
+
+document.addEventListener('keydown', (event) => {
+	if (event.key === 'Escape') {
+		document.querySelectorAll('.project-menu-dropdown.is-open').forEach((d) => d.classList.remove('is-open'))
+	}
+})

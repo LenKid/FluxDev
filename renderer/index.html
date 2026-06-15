@@ -86,6 +86,28 @@
                     <input id="favorites-only" type="checkbox" />
                     Solo favoritos
                 </label>
+                <div class="view-switcher" role="group" aria-label="Modo de visualización">
+                    <button type="button" id="view-mode-grid" class="view-switch-btn is-active" title="Vista cuadrícula">
+                        <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                            <rect x="4" y="4" width="6" height="6" rx="1" />
+                            <rect x="14" y="4" width="6" height="6" rx="1" />
+                            <rect x="4" y="14" width="6" height="6" rx="1" />
+                            <rect x="14" y="14" width="6" height="6" rx="1" />
+                        </svg>
+                    </button>
+                    <button type="button" id="view-mode-compact" class="view-switch-btn" title="Lista compacta">
+                        <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                            <line x1="9" y1="6" x2="20" y2="6" />
+                            <line x1="9" y1="12" x2="20" y2="12" />
+                            <line x1="9" y1="18" x2="20" y2="18" />
+                            <circle cx="5" cy="6" r="1" />
+                            <circle cx="5" cy="12" r="1" />
+                            <circle cx="5" cy="18" r="1" />
+                        </svg>
+                    </button>
+                </div>
             </div>
             <div class="tabs" role="tablist" aria-label="Vistas de proyectos">
                 <button type="button" class="tab-button is-active" data-tab="projects" role="tab" aria-selected="true">Proyectos</button>
