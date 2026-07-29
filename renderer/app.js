@@ -5,6 +5,8 @@ const iconInput = document.getElementById('icon')
 const commandsInput = document.getElementById('commands')
 const environmentProfileNameInput = document.getElementById('environment-profile-name')
 const environmentProfileVariablesInput = document.getElementById('environment-profile-variables')
+const environmentProfileActivateInput = document.getElementById('environment-profile-activate')
+const environmentProfileCwdInput = document.getElementById('environment-profile-cwd')
 const environmentProfileSaveButton = document.getElementById('environment-profile-save')
 const environmentProfileCancelButton = document.getElementById('environment-profile-cancel')
 const environmentProfilesList = document.getElementById('environment-profiles-list')
@@ -78,6 +80,7 @@ const aboutOs = document.getElementById('about-os')
 const aboutShell = document.getElementById('about-shell')
 const runningProjectIds = new Set()
 const processSnapshots = new Map()
+const closedProcessKeys = new Set()
 const gitSnapshots = new Map()
 const selectedEnvironmentProfileByProjectId = new Map()
 let currentProjects = []
@@ -165,12 +168,34 @@ const serializeEnvironmentVariables = (environment) => {
 		.join('\n')
 }
 
-const getNormalizedProfileId = (project) => {
+const getNormalizedProfileIds = (project) => {
 	const profiles = Array.isArray(project?.environmentProfiles) ? project.environmentProfiles : []
-	const selected = selectedEnvironmentProfileByProjectId.get(project?.id)
-	const defaultProfileId = String(project?.defaultEnvironmentProfileId || '').trim()
-	const fallbackProfileId = String(profiles[0]?.id || '').trim()
-	return String(selected || defaultProfileId || fallbackProfileId || '').trim()
+	if (!profiles.length) {
+		return []
+	}
+	const stored = selectedEnvironmentProfileByProjectId.get(project?.id)
+	let selected
+	if (stored === undefined) {
+		selected = []
+	} else if (Array.isArray(stored)) {
+		selected = stored
+	} else {
+		selected = stored ? [String(stored)] : []
+	}
+	return selected.filter((id) => profiles.some((profile) => profile.id === id))
+}
+
+const getNormalizedProfileId = (project) => {
+	return getNormalizedProfileIds(project)[0] || ''
+}
+
+const readSelectedProfileIds = (container) => {
+	if (!container) {
+		return []
+	}
+	return Array.from(container.querySelectorAll('.profile-checkbox:checked'))
+		.map((checkbox) => checkbox.value)
+		.filter(Boolean)
 }
 
 const getProjectProfileOptions = (project) => {
@@ -252,6 +277,8 @@ const resetEnvironmentProfileForm = () => {
 	editingEnvironmentProfileId = null
 	environmentProfileNameInput.value = ''
 	environmentProfileVariablesInput.value = ''
+	environmentProfileActivateInput.value = ''
+	environmentProfileCwdInput.value = ''
 	environmentProfileSaveButton.textContent = 'Guardar perfil'
 	environmentProfileCancelButton.hidden = true
 }
@@ -261,7 +288,9 @@ const loadProjectProfilesIntoForm = (project) => {
 		? project.environmentProfiles.map((profile) => ({
 			id: profile.id,
 			name: profile.name,
-			environment: { ...(profile.environment || {}) }
+			environment: { ...(profile.environment || {}) },
+			activate: profile.activate || '',
+			cwd: profile.cwd || ''
 		}))
 		: []
 	projectDefaultEnvironmentProfileId = String(project?.defaultEnvironmentProfileId || projectEnvironmentProfiles[0]?.id || '')
@@ -279,6 +308,8 @@ const startEnvironmentProfileEdit = (profileId) => {
 	editingEnvironmentProfileId = profileId
 	environmentProfileNameInput.value = profile.name || ''
 	environmentProfileVariablesInput.value = serializeEnvironmentVariables(profile.environment)
+	environmentProfileActivateInput.value = profile.activate || ''
+	environmentProfileCwdInput.value = profile.cwd || ''
 	environmentProfileSaveButton.textContent = 'Actualizar perfil'
 	environmentProfileCancelButton.hidden = false
 	renderEnvironmentProfiles()
@@ -287,6 +318,8 @@ const startEnvironmentProfileEdit = (profileId) => {
 const upsertEnvironmentProfile = () => {
 	const name = environmentProfileNameInput.value.trim()
 	const environment = parseEnvironmentVariablesText(environmentProfileVariablesInput.value)
+	const activate = environmentProfileActivateInput.value.trim()
+	const cwd = environmentProfileCwdInput.value.trim()
 
 	if (!name) {
 		setFeedback('El nombre del perfil es obligatorio.', 'error')
@@ -296,7 +329,9 @@ const upsertEnvironmentProfile = () => {
 	const nextProfile = {
 		id: editingEnvironmentProfileId || `profile-${Date.now().toString(36)}`,
 		name,
-		environment
+		environment,
+		activate,
+		cwd
 	}
 
 	if (editingEnvironmentProfileId) {
@@ -415,6 +450,29 @@ const escapeHtml = (value) => {
 		.replaceAll('<', '&lt;')
 		.replaceAll('>', '&gt;')
 		.replaceAll('"', '&quot;')
+}
+
+const URL_REGEX = /https?:\/\/[^\s<>"'`\]]+/gi
+
+const linkifyUrls = (rawText) => {
+	let lastIndex = 0
+	let match
+	let output = ''
+	URL_REGEX.lastIndex = 0
+	while ((match = URL_REGEX.exec(rawText)) !== null) {
+		const before = rawText.slice(lastIndex, match.index)
+		if (before) {
+			output += escapeHtml(before)
+		}
+		const url = match[0]
+		output += `<a href="#" class="process-link" data-url="${escapeHtml(url)}">${escapeHtml(url)}</a>`
+		lastIndex = match.index + url.length
+	}
+	const tail = rawText.slice(lastIndex)
+	if (tail) {
+		output += escapeHtml(tail)
+	}
+	return output
 }
 
 const formatCommands = (commands) => {
@@ -662,7 +720,7 @@ const syncTerminalProfileOptions = () => {
 		return
 	}
 
-	const profileId = getNormalizedProfileId(project)
+	const profileId = String(project?.defaultEnvironmentProfileId || (Array.isArray(project?.environmentProfiles) ? project.environmentProfiles[0]?.id : '') || '').trim()
 	if (profileId) {
 		terminalProfileSelect.value = profileId
 	}
@@ -927,7 +985,7 @@ const renderProcessesView = () => {
 			const statusClass = effectiveStatus === 'running' ? 'status running' : 'status idle'
 			const statusLabel = toStatusLabel(effectiveStatus)
 			const lastLogs = item.logs.length
-				? item.logs.map((line) => escapeHtml(line)).join('\n')
+				? item.logs.map((line) => linkifyUrls(line)).join('\n')
 				: 'Sin salida aun.'
 			const stopButton = isRunning
 				? `<button type="button" class="process-stop-button" data-project-id="${item.projectId}" data-process-key="${processKey}" data-command="${escapeHtml(item.command || '')}">${renderButtonIcon('player-stop', 'Detener')}</button>`
@@ -1004,6 +1062,17 @@ const renderProcessesView = () => {
 			}
 			processSnapshots.delete(processKey)
 			renderProcessesView()
+		})
+	})
+
+	processesView.querySelectorAll('.process-link').forEach((link) => {
+		link.addEventListener('click', (event) => {
+			event.preventDefault()
+			const url = link.dataset.url
+			if (!url) {
+				return
+			}
+			window.projectsApi.openExternal(url)
 		})
 	})
 }
@@ -1107,7 +1176,7 @@ const renderProjects = (projects) => {
 		.map((project) => {
 			const isFavorite = Boolean(project.favorite)
 			const isRunning = runningProjectIds.has(project.id)
-			const activeProfileId = getNormalizedProfileId(project)
+			const activeProfileIds = getNormalizedProfileIds(project)
 			const iconUrl = normalizeIconInput(project.icon)
 			const iconMarkup = iconUrl
 				? `<img class="project-icon" src="${escapeHtml(iconUrl)}" alt="Icono de ${escapeHtml(project.name)}" />`
@@ -1156,10 +1225,15 @@ const renderProjects = (projects) => {
 									${renderProjectMenu(project.id)}
 								</div>
 								<div class="project-profile-runner">
-									<label>Perfil de entorno</label>
-									<select class="profile-select">
-										${environmentProfiles.length ? environmentProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === activeProfileId ? 'selected' : ''}>${escapeHtml(profile.name || 'Perfil')}</option>`).join('') : '<option value="">Sin perfil</option>'}
-									</select>
+									<label>Perfiles de entorno</label>
+									<div class="profile-checkboxes">
+										${environmentProfiles.length ? environmentProfiles.map((profile) => `
+											<label class="profile-check">
+												<input type="checkbox" class="profile-checkbox" value="${escapeHtml(profile.id)}" ${activeProfileIds.includes(profile.id) ? 'checked' : ''} />
+												<span>${escapeHtml(profile.name || 'Perfil')}</span>
+											</label>`).join('') : '<span class="profile-empty">Sin perfiles</span>'}
+									</div>
+									<p class="profile-hint">Marca uno o varios. Ninguno = sin perfil.</p>
 								</div>
 								<p class="project-meta">${escapeHtml(getGitSummary(project.id))}</p>
 							</section>
@@ -1197,10 +1271,15 @@ const renderProjects = (projects) => {
 								${renderProjectMenu(project.id)}
 							</div>
 							<div class="project-profile-runner">
-								<label>Perfil de entorno</label>
-								<select class="profile-select">
-									${environmentProfiles.length ? environmentProfiles.map((profile) => `<option value="${escapeHtml(profile.id)}" ${profile.id === activeProfileId ? 'selected' : ''}>${escapeHtml(profile.name || 'Perfil')}</option>`).join('') : '<option value="">Sin perfil</option>'}
-								</select>
+								<label>Perfiles de entorno</label>
+								<div class="profile-checkboxes">
+									${environmentProfiles.length ? environmentProfiles.map((profile) => `
+										<label class="profile-check">
+											<input type="checkbox" class="profile-checkbox" value="${escapeHtml(profile.id)}" ${activeProfileIds.includes(profile.id) ? 'checked' : ''} />
+											<span>${escapeHtml(profile.name || 'Perfil')}</span>
+										</label>`).join('') : '<span class="profile-empty">Sin perfiles</span>'}
+								</div>
+								<p class="profile-hint">Marca uno o varios. Ninguno = sin perfil.</p>
 							</div>
 							<p class="project-meta">${escapeHtml(getGitSummary(project.id))}</p>
 						</section>
@@ -1566,9 +1645,8 @@ projectsList.addEventListener('change', (event) => {
 	}
 
 	const projectId = card.dataset.projectId
-	const profileSelect = card.querySelector('.profile-select')
-	if (event.target.classList.contains('profile-select')) {
-		selectedEnvironmentProfileByProjectId.set(projectId, profileSelect?.value || '')
+	if (event.target.classList.contains('profile-checkbox')) {
+		selectedEnvironmentProfileByProjectId.set(projectId, readSelectedProfileIds(card))
 		renderProjects(currentProjects)
 	}
 })
@@ -1586,15 +1664,14 @@ projectsList.addEventListener('click', async (event) => {
 
 	const projectId = card.dataset.projectId
 	const commandSelect = card.querySelector('.command-select')
-	const profileSelect = card.querySelector('.profile-select')
 	const command = commandSelect?.value || ''
-	const profile = profileSelect?.value || ''
+	const profileIds = readSelectedProfileIds(card)
 
 	if (actionButton.classList.contains('run-button')) {
 		try {
-			const runResult = await window.projectsApi.run(projectId, command, profile)
+			const runResult = await window.projectsApi.run(projectId, command, profileIds)
 			runningProjectIds.add(projectId)
-			selectedEnvironmentProfileByProjectId.set(projectId, profile)
+			selectedEnvironmentProfileByProjectId.set(projectId, profileIds)
 			upsertProcessSnapshot(runResult)
 			appendProcessLog({ projectId, processKey: runResult.processKey }, `Ejecutando: ${command}`, 'sys')
 			const project = currentProjects.find((p) => p.id === projectId)
@@ -1610,8 +1687,8 @@ projectsList.addEventListener('click', async (event) => {
 
 	if (actionButton.classList.contains('run-all-button')) {
 		try {
-			await window.projectsApi.runAll(projectId, profileId)
-			selectedEnvironmentProfileByProjectId.set(projectId, profileId)
+			await window.projectsApi.runAll(projectId, profileIds)
+			selectedEnvironmentProfileByProjectId.set(projectId, profileIds)
 			setFeedback('Multi-run iniciado correctamente.', 'success')
 		} catch (error) {
 			setFeedback(error?.message || 'No se pudo iniciar el multi-run.', 'error')
@@ -1741,6 +1818,37 @@ projectsList.addEventListener('click', async (event) => {
 })
 
 window.projectsApi.onRunUpdate((event) => {
+	const eventKey = String(event?.processKey || event?.projectId || '').trim()
+	const eventProjectId = String(event?.projectId || '').trim()
+	const eventStatus = String(event?.status || '').trim()
+
+	if (eventStatus === 'stopping') {
+		const keysToClose = []
+		processSnapshots.forEach((snapshot, key) => {
+			if ((eventKey && key === eventKey) || (eventProjectId && snapshot.projectId === eventProjectId)) {
+				keysToClose.push(key)
+			}
+		})
+		keysToClose.forEach((key) => {
+			processSnapshots.delete(key)
+			closedProcessKeys.add(key)
+		})
+		if (eventProjectId) {
+			runningProjectIds.delete(eventProjectId)
+		}
+		renderProjects(currentProjects)
+		renderProcessesView()
+		return
+	}
+
+	if (eventStatus === 'running' && eventKey) {
+		closedProcessKeys.delete(eventKey)
+	}
+
+	if (eventKey && closedProcessKeys.has(eventKey)) {
+		return
+	}
+
 	upsertProcessSnapshot(event)
 
 	if (event.status === 'running') {

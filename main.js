@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron/main");
 const path = require("node:path");
 const fs = require("node:fs/promises");
+const fsSync = require("node:fs");
 const { spawn, spawnSync } = require("node:child_process");
 const ElectronStore = require("electron-store");
 const Store = ElectronStore.default || ElectronStore;
@@ -153,6 +154,46 @@ const resolveRuntimeEnvironment = (project, profileId) => {
       ...(profile?.environment || {}),
     },
   };
+};
+
+const stripEdgeSeparators = (text) => String(text || '')
+  .trim()
+  .replace(/^(?:&&?|\|\|?|;)+\s*/, '')
+  .replace(/\s*(?:&&?|\|\|?|;)+$/, '')
+
+const resolveRuntimeEnvironmentForRun = (project, profileIds = []) => {
+  const ids = Array.isArray(profileIds)
+    ? profileIds.map((id) => String(id ?? '').trim()).filter(Boolean)
+    : [];
+  const profiles = Array.isArray(project?.environmentProfiles)
+    ? project.environmentProfiles
+    : [];
+  const matched = profiles.filter((profile) => ids.includes(String(profile.id)));
+  let activate = "";
+  let cwd = "";
+  const env = { ...process.env };
+
+  matched.forEach((profile) => {
+    Object.assign(env, profile?.environment || {});
+    const rawActivate = stripEdgeSeparators(profile?.activate);
+    if (rawActivate) {
+      activate = activate ? `${activate} && ${rawActivate}` : rawActivate;
+    }
+    const rawCwd = String(profile?.cwd || '').trim();
+    if (rawCwd) {
+      cwd = rawCwd;
+    }
+  });
+
+  const resolvedCwd = cwd ? path.resolve(project.path, cwd) : project.path;
+  let safeCwd = project.path;
+  try {
+    safeCwd = fsSync.statSync(resolvedCwd).isDirectory() ? resolvedCwd : project.path;
+  } catch {
+    safeCwd = project.path;
+  }
+
+  return { profiles: matched, activate, env, cwd: safeCwd };
 };
 
 const readProjects = async () => {
@@ -723,7 +764,7 @@ const closeTerminalSession = async (payload = {}) => {
 const runProjectCommand = async (
   projectId,
   command,
-  profileId = "",
+  profileIds = [],
   processKey = "",
 ) => {
   const projects = await readProjects();
@@ -754,7 +795,7 @@ const runProjectCommand = async (
   }
 
   const startPromise = spawnProjectCommandProcess(project, command, {
-    profileId,
+    profileIds,
     processKey: key,
   });
   void startPromise.catch(() => {
@@ -916,23 +957,23 @@ const spawnProjectCommandProcess = async (project, command, options = {}) => {
     emitCloseStatus = true,
     startMessage = `Ejecutando: ${command}`,
     controller = null,
-    profileId = "",
+    profileIds = [],
     processKey = "",
   } = options;
   const key = processKey || `${project.id}:${Date.now().toString(36)}`;
-  const runtime = resolveRuntimeEnvironment(project, profileId);
+  const runtime = resolveRuntimeEnvironmentForRun(project, profileIds);
 
   const finalCommand = runtime.activate
-    ? `${runtime.activate}; ${command}`
+    ? `${runtime.activate} && ${command}`
     : command;
 
   return new Promise((resolve, reject) => {
-    const child = spawn(finalCommand, {
-      cwd: project.path,
-      shell: true,
-      windowsHide: true,
-      env: runtime.env,
-    });
+  const child = spawn(finalCommand, {
+    cwd: runtime.cwd || project.path,
+    shell: true,
+    windowsHide: true,
+    env: runtime.env,
+  });
 
     runningProcesses.set(key, child);
     activeCommands.set(key, { command, projectId: project.id });
@@ -1027,7 +1068,7 @@ const spawnProjectCommandProcess = async (project, command, options = {}) => {
   });
 };
 
-const runProjectCommandSequence = async (projectId, profileId = "") => {
+const runProjectCommandSequence = async (projectId, profileIds = []) => {
   const project = await getProjectById(projectId);
 
   if (!project) {
@@ -1039,9 +1080,12 @@ const runProjectCommandSequence = async (projectId, profileId = "") => {
   }
 
   const commands = Array.isArray(project.commands) ? project.commands : [];
-  const selectedProfileId = String(
-    profileId || project?.defaultEnvironmentProfileId || "",
-  ).trim();
+  const normalizedProfileIds = Array.isArray(profileIds)
+    ? profileIds.map((id) => String(id ?? '').trim()).filter(Boolean)
+    : [];
+  const selectedProfileIds = normalizedProfileIds.length
+    ? normalizedProfileIds
+    : (project?.defaultEnvironmentProfileId ? [String(project.defaultEnvironmentProfileId)] : []);
 
   if (commands.length === 0) {
     throw new Error("El proyecto no tiene comandos para ejecutar.");
@@ -1066,7 +1110,7 @@ const runProjectCommandSequence = async (projectId, profileId = "") => {
           emitCloseStatus: false,
           controller,
           startMessage: `Paso ${index + 1}/${commands.length}: ${command}`,
-          profileId: selectedProfileId,
+          profileIds: selectedProfileIds,
         });
       }
 
@@ -1736,25 +1780,29 @@ const registerIpcHandlers = () => {
   ipcMain.handle("projects:run", async (_event, payload) => {
     const projectId = String(payload?.projectId ?? "").trim();
     const command = String(payload?.command ?? "").trim();
-    const profileId = String(payload?.profileId ?? "").trim();
+    const profileIds = Array.isArray(payload?.profileIds)
+      ? payload.profileIds.map((id) => String(id ?? '').trim()).filter(Boolean)
+      : [];
 
     if (!projectId || !command) {
       throw new Error("Proyecto y comando son obligatorios.");
     }
 
     const processKey = `${projectId}:${Date.now().toString(36)}`;
-    return runProjectCommand(projectId, command, profileId, processKey);
+    return runProjectCommand(projectId, command, profileIds, processKey);
   });
 
   ipcMain.handle("projects:run-all", async (_event, payload) => {
     const projectId = String(payload?.projectId ?? "").trim();
-    const profileId = String(payload?.profileId ?? "").trim();
+    const profileIds = Array.isArray(payload?.profileIds)
+      ? payload.profileIds.map((id) => String(id ?? '').trim()).filter(Boolean)
+      : [];
 
     if (!projectId) {
       throw new Error("Debes indicar el proyecto a ejecutar.");
     }
 
-    return runProjectCommandSequence(projectId, profileId);
+    return runProjectCommandSequence(projectId, profileIds);
   });
 
   ipcMain.handle("projects:stop", async (_event, payload) => {

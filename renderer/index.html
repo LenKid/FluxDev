@@ -305,13 +305,15 @@
                     <div class="environment-profile-form">
                         <input id="environment-profile-name" type="text" placeholder="Nombre del perfil, por ejemplo: Desarrollo" />
                         <textarea id="environment-profile-variables" rows="4" placeholder="API_URL=http://localhost:3000&#10;NODE_ENV=development"></textarea>
+                        <textarea id="environment-profile-activate" rows="2" placeholder='Script de activacion, p. ej. venv de Windows:&#10;call "ruta\venv\Scripts\activate.bat"'></textarea>
+                        <input id="environment-profile-cwd" type="text" placeholder="Directorio de trabajo (opcional, relativo a la ruta del proyecto, p. ej. backend)" />
                     </div>
                     <div class="environment-profile-actions">
                         <button type="button" id="environment-profile-save">Guardar perfil</button>
                         <button type="button" id="environment-profile-cancel" hidden>Cancelar edicion</button>
                     </div>
                     <div id="environment-profiles-list" class="environment-profiles-list"></div>
-                    <p class="input-hint">Escribe variables como KEY=VALUE, una por linea. El primer perfil guardado se usa por defecto.</p>
+                    <p class="input-hint">Escribe variables como KEY=VALUE, una por linea. El primer perfil guardado se usa por defecto. El "Script de activacion" se antepone al comando (util para activar un venv).</p>
                 </div>
             </article>
         </section>

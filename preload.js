@@ -18,8 +18,14 @@ contextBridge.exposeInMainWorld('projectsApi', {
     gitStatus: (projectId) => ipcRenderer.invoke('projects:git-status', { projectId }),
     exportData: () => ipcRenderer.invoke('projects:export'),
     importData: () => ipcRenderer.invoke('projects:import'),
-    run: (projectId, command, profileId = '') => ipcRenderer.invoke('projects:run', { projectId, command, profileId }),
-    runAll: (projectId, profileId = '') => ipcRenderer.invoke('projects:run-all', { projectId, profileId }),
+    run: (projectId, command, profileIds = []) => {
+      const ids = Array.isArray(profileIds) ? profileIds : (profileIds ? [profileIds] : [])
+      return ipcRenderer.invoke('projects:run', { projectId, command, profileIds: ids })
+    },
+    runAll: (projectId, profileIds = []) => {
+      const ids = Array.isArray(profileIds) ? profileIds : (profileIds ? [profileIds] : [])
+      return ipcRenderer.invoke('projects:run-all', { projectId, profileIds: ids })
+    },
     stop: (payload) => ipcRenderer.invoke('projects:stop', payload),
     running: () => ipcRenderer.invoke('projects:running'),
     pickDirectory: () => ipcRenderer.invoke('dialog:pick-directory'),
