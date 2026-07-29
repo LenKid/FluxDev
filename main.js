@@ -38,6 +38,7 @@ const store = new Store({
   name: "fluxdev",
   defaults: {
     projects: [],
+    history: [],
   },
 });
 
@@ -199,6 +200,15 @@ const resolveRuntimeEnvironmentForRun = (project, profileIds = []) => {
 const readProjects = async () => {
   const projects = store.get("projects", []);
   return Array.isArray(projects) ? projects : [];
+};
+
+const readHistory = async () => {
+  const history = store.get("history", []);
+  return Array.isArray(history) ? history : [];
+};
+
+const saveHistory = async (history) => {
+  store.set("history", history);
 };
 
 const hasProjectWithPath = async (projectPath, excludeProjectId = "") => {
@@ -829,14 +839,14 @@ const stopProjectCommand = async (payload = {}) => {
         projectId,
         processKey,
         command: cmdInfo?.command || "",
-        status: "stopping",
+        status: "stopped",
         message: "Proceso detenido.",
       });
       return {
         projectId,
         processKey,
         stopped: true,
-        status: "stopping",
+        status: "stopped",
       };
     }
     return { projectId, processKey, stopped: false, status: "idle" };
@@ -863,7 +873,7 @@ const stopProjectCommand = async (payload = {}) => {
     if (stoppedCount > 0) {
       broadcastRunUpdate({
         projectId,
-        status: "stopping",
+        status: "stopped",
         message: `${stoppedCount} proceso(s) detenido(s).`,
       });
     }
@@ -872,7 +882,7 @@ const stopProjectCommand = async (payload = {}) => {
       projectId,
       stopped: stoppedCount > 0,
       stoppedCount,
-      status: stoppedCount > 0 ? "stopping" : "idle",
+      status: stoppedCount > 0 ? "stopped" : "idle",
     };
   }
 
@@ -1886,6 +1896,14 @@ const registerIpcHandlers = () => {
 
     await shell.openPath(project.path);
     return { opened: true };
+  });
+
+  ipcMain.handle("history:list", async () => readHistory());
+
+  ipcMain.handle("history:save", async (_event, payload) => {
+    const history = Array.isArray(payload?.history) ? payload.history : [];
+    await saveHistory(history);
+    return { saved: true, count: history.length };
   });
 
   ipcMain.handle("shell:open-external", async (_event, payload) => {

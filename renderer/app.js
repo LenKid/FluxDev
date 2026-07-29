@@ -60,6 +60,8 @@ const dashboardAddProjectBtn = document.getElementById('dashboard-add-project')
 const dashboardAutoDetectBtn = document.getElementById('dashboard-auto-detect')
 const dashboardRecentList = document.getElementById('dashboard-recent-list')
 const dashboardRecentEmpty = document.getElementById('dashboard-recent-empty')
+const dashboardQuickRunList = document.getElementById('dashboard-quick-run-list')
+const dashboardQuickRunEmpty = document.getElementById('dashboard-quick-run-empty')
 const statTotal = document.getElementById('stat-total')
 const statRunning = document.getElementById('stat-running')
 const statFavorites = document.getElementById('stat-favorites')
@@ -1054,13 +1056,16 @@ const renderProcessesView = () => {
 		button.addEventListener('click', async (event) => {
 			const projectId = event.target.dataset.projectId
 			const processKey = event.target.dataset.processKey
+			closedProcessKeys.add(processKey)
 			try {
 				await window.projectsApi.stop({ projectId, processKey })
-				runningProjectIds.delete(projectId)
 			} catch (error) {
-				// Puede que ya esté detenido
+				// Ya detenido
 			}
 			processSnapshots.delete(processKey)
+			runningProjectIds.delete(projectId)
+			closedProcessKeys.delete(processKey)
+			renderProjects(currentProjects)
 			renderProcessesView()
 		})
 	})
@@ -1132,6 +1137,12 @@ const startEditMode = (projectId) => {
 		setFeedback('No se encontro el proyecto para editar.', 'error')
 		return
 	}
+
+	if (showDashboard) {
+		toggleDashboard()
+	}
+
+	setActiveTab('projects')
 
 	editingProjectId = projectId
 	nameInput.value = project.name
@@ -1823,16 +1834,7 @@ window.projectsApi.onRunUpdate((event) => {
 	const eventStatus = String(event?.status || '').trim()
 
 	if (eventStatus === 'stopping') {
-		const keysToClose = []
-		processSnapshots.forEach((snapshot, key) => {
-			if ((eventKey && key === eventKey) || (eventProjectId && snapshot.projectId === eventProjectId)) {
-				keysToClose.push(key)
-			}
-		})
-		keysToClose.forEach((key) => {
-			processSnapshots.delete(key)
-			closedProcessKeys.add(key)
-		})
+		upsertProcessSnapshot({ projectId: eventProjectId, processKey: eventKey || undefined, status: 'stopping' })
 		if (eventProjectId) {
 			runningProjectIds.delete(eventProjectId)
 		}
@@ -1849,20 +1851,31 @@ window.projectsApi.onRunUpdate((event) => {
 		return
 	}
 
+	if (eventStatus === 'stopped' || eventStatus === 'failed') {
+		const existingSnapshot = processSnapshots.get(eventKey || eventProjectId)
+		if (existingSnapshot) {
+			existingSnapshot.status = eventStatus
+			existingSnapshot.updatedAt = new Date().toISOString()
+		} else {
+			upsertProcessSnapshot(event)
+		}
+		if (eventProjectId) {
+			runningProjectIds.delete(eventProjectId)
+		}
+		const historyStatus = eventStatus === 'failed' ? 'error' : 'complete'
+		const existingEntry = executionHistory.find((e) => e.projectId === eventProjectId && e.status === 'running')
+		if (existingEntry) {
+			existingEntry.status = historyStatus
+		}
+		renderProjects(currentProjects)
+		renderProcessesView()
+		return
+	}
+
 	upsertProcessSnapshot(event)
 
 	if (event.status === 'running') {
 		runningProjectIds.add(event.projectId)
-		renderProjects(currentProjects)
-	}
-
-	if (event.status === 'stopping' || event.status === 'stopped' || event.status === 'failed') {
-		runningProjectIds.delete(event.projectId)
-		const historyStatus = event.status === 'failed' ? 'error' : 'complete'
-		const existingEntry = executionHistory.find((e) => e.projectId === event.projectId && e.status === 'running')
-		if (existingEntry) {
-			existingEntry.status = historyStatus
-		}
 		renderProjects(currentProjects)
 	}
 
@@ -1971,6 +1984,14 @@ const populateAboutInfo = () => {
 	aboutShell.textContent = 'PowerShell'
 }
 
+const persistHistory = () => {
+	try {
+		window.projectsApi?.saveHistory(executionHistory)
+	} catch (error) {
+		// Silenciar errores de persistencia
+	}
+}
+
 const addToHistory = (projectId, projectName, command, status) => {
 	const entry = {
 		id: Date.now(),
@@ -1984,6 +2005,7 @@ const addToHistory = (projectId, projectName, command, status) => {
 	if (executionHistory.length > MAX_HISTORY) {
 		executionHistory.pop()
 	}
+	persistHistory()
 	if (activeTab === 'history') {
 		renderHistoryView()
 	}
@@ -2041,11 +2063,35 @@ const renderDashboard = () => {
 		dashboardRecentList.innerHTML = recent.map((entry) => {
 			const time = new Date(entry.timestamp)
 			const timeStr = time.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-			return `<div class="recent-item">
+			return `<div class="recent-item" data-history-id="${entry.id}">
 				<span class="recent-dot ${escapeHtml(entry.status)}"></span>
 				<span class="recent-project">${escapeHtml(entry.projectName)}</span>
 				<span class="recent-command">${escapeHtml(entry.command)}</span>
 				<span class="recent-time">${timeStr}</span>
+				<button type="button" class="recent-remove" title="Quitar">${renderButtonIcon('x', 'Quitar')}</button>
+			</div>`
+		}).join('')
+	}
+
+	const seen = new Set()
+	const quickRunEntries = []
+	for (const entry of executionHistory) {
+		const key = `${entry.projectId}::${entry.command}`
+		if (seen.has(key)) continue
+		seen.add(key)
+		quickRunEntries.push(entry)
+		if (quickRunEntries.length >= 5) break
+	}
+	if (quickRunEntries.length === 0) {
+		dashboardQuickRunList.innerHTML = ''
+		dashboardQuickRunEmpty.hidden = false
+	} else {
+		dashboardQuickRunEmpty.hidden = true
+		dashboardQuickRunList.innerHTML = quickRunEntries.map((entry) => {
+			return `<div class="quick-run-item" data-project-id="${escapeHtml(entry.projectId)}" data-command="${escapeHtml(entry.command)}">
+				<span class="quick-run-project">${escapeHtml(entry.projectName)}</span>
+				<span class="quick-run-command">${escapeHtml(entry.command)}</span>
+				<button type="button" class="quick-run-btn" title="Ejecutar">${renderButtonIcon('player-play', 'Ejecutar')}</button>
 			</div>`
 		}).join('')
 	}
@@ -2053,6 +2099,20 @@ const renderDashboard = () => {
 	renderStatusChart()
 	renderTopProjectsChart()
 }
+
+dashboardRecentList?.addEventListener('click', (event) => {
+	const removeBtn = event.target.closest('.recent-remove')
+	if (!removeBtn) return
+	const item = removeBtn.closest('.recent-item')
+	if (!item) return
+	const id = Number(item.dataset.historyId)
+	if (!id) return
+	const index = executionHistory.findIndex((e) => e.id === id)
+	if (index === -1) return
+	executionHistory.splice(index, 1)
+	persistHistory()
+	renderDashboard()
+})
 
 let statusChartInstance = null
 let topProjectsChartInstance = null
@@ -2199,6 +2259,7 @@ historyFilterStatus?.addEventListener('change', (event) => {
 
 historyClearBtn?.addEventListener('click', () => {
 	executionHistory.length = 0
+	persistHistory()
 	renderHistoryView()
 })
 
@@ -2213,6 +2274,27 @@ dashboardAutoDetectBtn?.addEventListener('click', () => {
 		toggleDashboard()
 	}
 	autoDetectButton?.click()
+})
+
+dashboardQuickRunList?.addEventListener('click', async (event) => {
+	const item = event.target.closest('.quick-run-item')
+	if (!item) return
+	const projectId = item.dataset.projectId
+	const command = item.dataset.command
+	if (!projectId || !command) return
+	try {
+		const runResult = await window.projectsApi.run(projectId, command, [])
+		runningProjectIds.add(projectId)
+		upsertProcessSnapshot(runResult)
+		appendProcessLog({ projectId, processKey: runResult.processKey }, `Ejecutando: ${command}`, 'sys')
+		const project = currentProjects.find((p) => p.id === projectId)
+		addToHistory(projectId, project?.name || projectId, command, 'running')
+		renderProjects(currentProjects)
+		renderProcessesView()
+		setFeedback(`Comando lanzado: ${command}`, 'success')
+	} catch (error) {
+		setFeedback(error?.message || 'No se pudo ejecutar el comando.', 'error')
+	}
 })
 
 const toggleDashboard = () => {
@@ -2247,6 +2329,12 @@ resetFormMode()
 setActiveTab(activeTab)
 syncViewSwitcherButtons()
 showWelcomeIfNeeded()
+window.projectsApi?.loadHistory?.().then((saved) => {
+	if (Array.isArray(saved) && saved.length > 0) {
+		executionHistory.length = 0
+		executionHistory.push(...saved)
+	}
+}).catch(() => {})
 loadProjects().then(() => {
 	updateRunningFromSystem()
 	if (showDashboard) {

@@ -1821,10 +1821,107 @@ button:disabled {
   flex-shrink: 0;
 }
 
+.recent-remove {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.15rem;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease, color 0.15s ease;
+}
+
+.recent-item:hover .recent-remove {
+  opacity: 1;
+}
+
+.recent-remove:hover {
+  color: var(--danger);
+}
+
+.recent-remove .ui-icon {
+  width: 12px;
+  height: 12px;
+}
+
 .dashboard-recent-empty {
   color: var(--muted);
   font-size: 0.82rem;
   margin: 0;
+}
+
+.dashboard-quick-run {
+  flex: 1;
+  min-height: 0;
+}
+
+.dashboard-quick-run h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.dashboard-quick-run-list {
+  overflow-y: auto;
+  max-height: 200px;
+}
+
+.quick-run-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.4rem 0.5rem;
+  border-radius: 8px;
+  font-size: 0.82rem;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.quick-run-item:hover {
+  background: rgba(57, 255, 20, 0.06);
+}
+
+.quick-run-project {
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.quick-run-command {
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-right: auto;
+}
+
+.quick-run-btn {
+  background: none;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0.2rem;
+  border-radius: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.quick-run-btn:hover {
+  color: var(--primary);
+  background: rgba(57, 255, 20, 0.1);
+}
+
+.quick-run-btn .ui-icon {
+  width: 14px;
+  height: 14px;
 }
 
 .dashboard-charts {

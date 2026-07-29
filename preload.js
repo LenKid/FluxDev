@@ -32,6 +32,8 @@ contextBridge.exposeInMainWorld('projectsApi', {
     pickIcon: () => ipcRenderer.invoke('dialog:pick-icon'),
     openFolder: (projectId) => ipcRenderer.invoke('projects:open-folder', { projectId }),
     openExternal: (url) => ipcRenderer.invoke('shell:open-external', { url }),
+    loadHistory: () => ipcRenderer.invoke('history:list'),
+    saveHistory: (history) => ipcRenderer.invoke('history:save', { history }),
     onRunUpdate: (listener) => {
         const subscription = (_event, payload) => listener(payload)
         ipcRenderer.on('projects:run-update', subscription)
