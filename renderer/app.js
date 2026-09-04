@@ -3,6 +3,10 @@ const nameInput = document.getElementById('name')
 const pathInput = document.getElementById('path')
 const iconInput = document.getElementById('icon')
 const commandsInput = document.getElementById('commands')
+const projectTagsInput = document.getElementById('project-tags')
+const projectTagFilter = document.getElementById('project-tag-filter')
+const projectTagFilterMode = document.getElementById('project-tag-filter-mode')
+const projectTagsOptions = document.getElementById('project-tags-options')
 const environmentProfileNameInput = document.getElementById('environment-profile-name')
 const environmentProfileVariablesInput = document.getElementById('environment-profile-variables')
 const environmentProfileActivateInput = document.getElementById('environment-profile-activate')
@@ -12,6 +16,8 @@ const environmentProfileCancelButton = document.getElementById('environment-prof
 const environmentProfilesList = document.getElementById('environment-profiles-list')
 const browsePathButton = document.getElementById('browse-path')
 const browseIconButton = document.getElementById('browse-icon')
+const iconPreview = document.getElementById('icon-preview')
+const addProjectEnvironmentProfilesButton = document.getElementById('new-project-environment-profiles')
 const iconTemplateButtons = document.querySelectorAll('.icon-template')
 const submitProjectButton = document.getElementById('submit-project')
 const cancelEditButton = document.getElementById('cancel-edit')
@@ -23,6 +29,10 @@ const detectModal = document.getElementById('detect-modal')
 const environmentProfilesModal = document.getElementById('environment-profiles-modal')
 const environmentProfilesModalProject = document.getElementById('environment-profiles-project')
 const environmentProfilesCloseButton = document.getElementById('environment-profiles-close')
+const globalSearchModal = document.getElementById('global-search-modal')
+const globalSearchInput = document.getElementById('global-search-input')
+const globalSearchResults = document.getElementById('global-search-results')
+const globalSearchCloseButton = document.getElementById('global-search-close')
 const detectSubtitle = document.getElementById('detect-subtitle')
 const detectList = document.getElementById('detect-list')
 const detectCancelButton = document.getElementById('detect-cancel')
@@ -58,8 +68,11 @@ const formHeader = document.getElementById('form-header')
 const toggleDashboardBtn = document.getElementById('toggle-dashboard')
 const dashboardAddProjectBtn = document.getElementById('dashboard-add-project')
 const dashboardAutoDetectBtn = document.getElementById('dashboard-auto-detect')
-const dashboardRecentList = document.getElementById('dashboard-recent-list')
-const dashboardRecentEmpty = document.getElementById('dashboard-recent-empty')
+const dashboardHistoryLink = document.getElementById('dashboard-history-link')
+const globalTagForm = document.getElementById('global-tag-form')
+const globalTagInput = document.getElementById('global-tag-input')
+const globalTagsList = document.getElementById('global-tags-list')
+const globalTagsEmpty = document.getElementById('global-tags-empty')
 const dashboardQuickRunList = document.getElementById('dashboard-quick-run-list')
 const dashboardQuickRunEmpty = document.getElementById('dashboard-quick-run-empty')
 const statTotal = document.getElementById('stat-total')
@@ -73,6 +86,8 @@ const historyEmpty = document.getElementById('history-empty')
 const historySearchInput = document.getElementById('history-search')
 const historyFilterStatus = document.getElementById('history-filter-status')
 const historyClearBtn = document.getElementById('history-clear')
+const processSearchInput = document.getElementById('process-search')
+const processFilterStatus = document.getElementById('process-filter-status')
 const aboutView = document.getElementById('about-view')
 const aboutVersion = document.getElementById('about-version')
 const aboutElectron = document.getElementById('about-electron')
@@ -85,17 +100,73 @@ const processSnapshots = new Map()
 const closedProcessKeys = new Set()
 const gitSnapshots = new Map()
 const selectedEnvironmentProfileByProjectId = new Map()
-let currentProjects = []
-let editingProjectId = null
-let editingEnvironmentProfileId = null
-let projectEnvironmentProfiles = []
-let projectDefaultEnvironmentProfileId = ''
-let environmentProfilesTargetProjectId = ''
-let activeTab = 'projects'
-let projectSearchTerm = ''
-let favoritesOnly = false
-let projectSortBy = 'name'
-let projectViewMode = localStorage.getItem('fluxdev_project_view_mode') || 'grid'
+const uiState = window.FluxDevStateStore ? window.FluxDevStateStore.createStateStore({
+	currentProjects: [],
+	editingProjectId: null,
+	editingEnvironmentProfileId: null,
+	projectEnvironmentProfiles: [],
+	projectDefaultEnvironmentProfileId: '',
+	environmentProfilesTargetProjectId: '',
+	activeTab: 'projects',
+	projectSearchTerm: '',
+	favoritesOnly: false,
+	projectSortBy: 'name',
+	projectViewMode: localStorage.getItem('fluxdev_project_view_mode') || 'grid',
+	projectTagFilter: [],
+	projectTagFilterMode: 'any',
+	historyFilterTerm: '',
+	historyFilterStatusValue: 'all',
+	processFilterTerm: '',
+	processFilterStatusValue: 'all',
+	showDashboard: true,
+}) : null
+
+const setUiState = (patch = {}) => {
+	if (uiState) {
+		uiState.setState(patch)
+	}
+
+	Object.entries(patch).forEach(([key, value]) => {
+		switch (key) {
+			case 'currentProjects': currentProjects = value; break
+			case 'editingProjectId': editingProjectId = value; break
+			case 'editingEnvironmentProfileId': editingEnvironmentProfileId = value; break
+			case 'projectEnvironmentProfiles': projectEnvironmentProfiles = value; break
+			case 'projectDefaultEnvironmentProfileId': projectDefaultEnvironmentProfileId = value; break
+			case 'environmentProfilesTargetProjectId': environmentProfilesTargetProjectId = value; break
+			case 'activeTab': activeTab = value; break
+			case 'projectSearchTerm': projectSearchTerm = value; break
+			case 'favoritesOnly': favoritesOnly = value; break
+			case 'projectSortBy': projectSortBy = value; break
+			case 'projectViewMode': projectViewMode = value; break
+			case 'projectTagFilter': projectTagFilterValues = value; break
+			case 'projectTagFilterMode': projectTagFilterModeValue = value; break
+			case 'historyFilterTerm': historyFilterTerm = value; break
+			case 'historyFilterStatusValue': historyFilterStatusValue = value; break
+			case 'processFilterTerm': processFilterTerm = value; break
+			case 'processFilterStatusValue': processFilterStatusValue = value; break
+			case 'showDashboard': showDashboard = value; break
+		}
+	})
+}
+
+let currentProjects = uiState ? uiState.getState().currentProjects : []
+let editingProjectId = uiState ? uiState.getState().editingProjectId : null
+let editingEnvironmentProfileId = uiState ? uiState.getState().editingEnvironmentProfileId : null
+let projectEnvironmentProfiles = uiState ? uiState.getState().projectEnvironmentProfiles : []
+let projectDefaultEnvironmentProfileId = uiState ? uiState.getState().projectDefaultEnvironmentProfileId : ''
+let environmentProfilesTargetProjectId = uiState ? uiState.getState().environmentProfilesTargetProjectId : ''
+let activeTab = uiState ? uiState.getState().activeTab : 'projects'
+let projectSearchTerm = uiState ? uiState.getState().projectSearchTerm : ''
+let favoritesOnly = uiState ? uiState.getState().favoritesOnly : false
+let projectSortBy = uiState ? uiState.getState().projectSortBy : 'name'
+let projectViewMode = uiState ? uiState.getState().projectViewMode : (localStorage.getItem('fluxdev_project_view_mode') || 'grid')
+let projectTagFilterValues = uiState ? uiState.getState().projectTagFilter : []
+let projectTagFilterModeValue = uiState ? uiState.getState().projectTagFilterMode : 'any'
+let historyFilterTerm = uiState ? uiState.getState().historyFilterTerm : ''
+let historyFilterStatusValue = uiState ? uiState.getState().historyFilterStatusValue : 'all'
+let processFilterTerm = uiState ? uiState.getState().processFilterTerm : ''
+let processFilterStatusValue = uiState ? uiState.getState().processFilterStatusValue : 'all'
 const expandedProjectIds = new Set()
 let detectedCandidates = []
 let terminalSessionId = null
@@ -109,9 +180,23 @@ let terminalEngineError = ''
 const TABLER_ICON_BASE = '../public/icons/tabler'
 const executionHistory = []
 const MAX_HISTORY = 100
-let historyFilterTerm = ''
-let historyFilterStatusValue = 'all'
-let showDashboard = true
+let showDashboard = uiState ? uiState.getState().showDashboard : true
+let renderRefreshTimer = null
+
+const scheduleProjectUiRefresh = () => {
+	if (renderRefreshTimer) {
+		clearTimeout(renderRefreshTimer)
+	}
+
+	renderRefreshTimer = setTimeout(() => {
+		renderRefreshTimer = null
+		renderProjects(currentProjects)
+		renderProcessesView()
+		if (showDashboard) {
+			renderDashboard()
+		}
+	}, 40)
+}
 
 const renderButtonIcon = (name, label, showMobileLabel = false, showLabel = false) => {
 	const mobileLabel = showMobileLabel ? `<span class="label-on-mobile">${escapeHtml(label)}</span>` : ''
@@ -139,6 +224,53 @@ const parseCommands = (commandsRaw) => {
 		.map((line) => line.trim())
 		.filter(Boolean)
 }
+
+const parseProjectTags = (tagsRaw) => {
+	const seen = new Set()
+	return String(tagsRaw ?? '')
+		.split(',')
+		.map((tag) => tag.trim())
+		.filter((tag) => {
+			const key = tag.toLocaleLowerCase()
+			if (!tag || seen.has(key)) {
+				return false
+			}
+			seen.add(key)
+			return true
+		})
+}
+
+const getProjectTags = (project) => Array.isArray(project?.tags) ? project.tags : []
+
+
+const syncProjectTagOptions = async () => {
+	let globalTags = []
+	if (window.projectsApi?.listTags) {
+		try {
+			globalTags = (await window.projectsApi.listTags()).map((tag) => tag.name)
+		} catch {
+			globalTags = []
+		}
+	}
+
+	const tags = Array.from(new Map(
+		currentProjects
+			.flatMap((project) => getProjectTags(project))
+			.concat(globalTags)
+			.map((tag) => [tag.toLocaleLowerCase(), tag])
+	).values()).sort((a, b) => a.localeCompare(b))
+
+	if (projectTagsOptions) {
+		projectTagsOptions.innerHTML = tags.map((tag) => `<option value="${escapeHtml(tag)}"></option>`).join('')
+	}
+
+	if (projectTagFilter) {
+		const selected = new Set(projectTagFilterValues.map((tag) => tag.toLocaleLowerCase()))
+		projectTagFilter.innerHTML = tags.map((tag) => `<option value="${escapeHtml(tag)}" ${selected.has(tag.toLocaleLowerCase()) ? 'selected' : ''}>${escapeHtml(tag)}</option>`).join('')
+	}
+}
+
+const renderProjectTags = (project) => getProjectTags(project).map((tag) => `<span class="project-tag">${escapeHtml(tag)}</span>`).join('')
 
 const parseEnvironmentVariablesText = (text) => {
 	const environment = {}
@@ -185,6 +317,32 @@ const getNormalizedProfileIds = (project) => {
 		selected = stored ? [String(stored)] : []
 	}
 	return selected.filter((id) => profiles.some((profile) => profile.id === id))
+}
+
+const persistLastUsedEnvironmentProfile = async (projectId, profileId) => {
+	const project = currentProjects.find((item) => item.id === projectId)
+	if (!project || !profileId) {
+		return
+	}
+
+	const profiles = Array.isArray(project.environmentProfiles) ? project.environmentProfiles : []
+	if (!profiles.some((profile) => profile.id === profileId)) {
+		return
+	}
+
+	if (project.lastUsedEnvironmentProfileId === profileId) {
+		return
+	}
+
+	try {
+		await window.projectsApi.update(projectId, {
+			...project,
+			lastUsedEnvironmentProfileId: profileId
+		})
+		project.lastUsedEnvironmentProfileId = profileId
+	} catch (error) {
+		setFeedback(error?.message || 'No se pudo guardar el ultimo perfil usado.', 'error')
+	}
 }
 
 const getNormalizedProfileId = (project) => {
@@ -251,28 +409,41 @@ const renderEnvironmentProfiles = () => {
 	}).join('')
 }
 
-const openEnvironmentProfilesModal = (projectId) => {
-	const project = currentProjects.find((item) => item.id === projectId)
-	if (!project) {
-		setFeedback('No se encontro el proyecto para administrar perfiles.', 'error')
+const openEnvironmentProfilesModal = (projectId = '') => {
+	if (projectId) {
+		const project = currentProjects.find((item) => item.id === projectId)
+		if (!project) {
+			setFeedback('No se encontro el proyecto para administrar perfiles.', 'error')
+			return
+		}
+
+		environmentProfilesTargetProjectId = projectId
+		environmentProfilesModalProject.textContent = `${project.name} | ${project.path}`
+		loadProjectProfilesIntoForm(project)
+		environmentProfilesModal.classList.remove('is-hidden')
+		environmentProfilesModal.setAttribute('aria-hidden', 'false')
 		return
 	}
 
-	environmentProfilesTargetProjectId = projectId
-	environmentProfilesModalProject.textContent = `${project.name} | ${project.path}`
-	loadProjectProfilesIntoForm(project)
+	environmentProfilesTargetProjectId = ''
+	environmentProfilesModalProject.textContent = 'Nuevo proyecto · perfiles de entorno'
+	resetEnvironmentProfileForm()
+	renderEnvironmentProfiles()
 	environmentProfilesModal.classList.remove('is-hidden')
 	environmentProfilesModal.setAttribute('aria-hidden', 'false')
 }
 
 const closeEnvironmentProfilesModal = () => {
+	const wasProjectScoped = Boolean(environmentProfilesTargetProjectId)
 	environmentProfilesTargetProjectId = ''
 	environmentProfilesModal.classList.add('is-hidden')
 	environmentProfilesModal.setAttribute('aria-hidden', 'true')
 	resetEnvironmentProfileForm()
-	projectEnvironmentProfiles = []
-	projectDefaultEnvironmentProfileId = ''
-	environmentProfilesModalProject.textContent = 'Selecciona un proyecto para administrar sus variables.'
+	if (wasProjectScoped) {
+		projectEnvironmentProfiles = []
+		projectDefaultEnvironmentProfileId = ''
+		environmentProfilesModalProject.textContent = 'Selecciona un proyecto para administrar sus variables.'
+	}
 }
 
 const resetEnvironmentProfileForm = () => {
@@ -351,7 +522,9 @@ const upsertEnvironmentProfile = () => {
 
 const persistEnvironmentProfilesToProject = async (successMessage = 'Perfil de entorno guardado.') => {
 	if (!environmentProfilesTargetProjectId) {
-		setFeedback('No hay un proyecto seleccionado para guardar perfiles.', 'error')
+		resetEnvironmentProfileForm()
+		renderEnvironmentProfiles()
+		setFeedback('Perfil de entorno guardado en este proyecto nuevo.', 'success')
 		return
 	}
 
@@ -385,12 +558,20 @@ const deleteEnvironmentProfile = async (profileId) => {
 		resetEnvironmentProfileForm()
 	}
 	renderEnvironmentProfiles()
+	if (!environmentProfilesTargetProjectId) {
+		setFeedback('Perfil eliminado del proyecto nuevo.', 'success')
+		return
+	}
 	await persistEnvironmentProfilesToProject('Perfil eliminado correctamente.')
 }
 
 const setDefaultEnvironmentProfile = async (profileId) => {
 	projectDefaultEnvironmentProfileId = profileId
 	renderEnvironmentProfiles()
+	if (!environmentProfilesTargetProjectId) {
+		setFeedback('Perfil predeterminado actualizado para este proyecto nuevo.', 'success')
+		return
+	}
 	await persistEnvironmentProfilesToProject('Perfil predeterminado actualizado.')
 }
 
@@ -521,6 +702,31 @@ const normalizeIconInput = (raw) => {
 	return value
 }
 
+const renderIconPreview = (rawValue) => {
+	if (!iconPreview) {
+		return
+	}
+
+	const normalized = normalizeIconInput(rawValue)
+	iconPreview.innerHTML = ''
+	iconPreview.classList.toggle('is-empty', !normalized)
+
+	if (!normalized) {
+		iconPreview.textContent = 'Sin icono'
+		return
+	}
+
+	const previewImage = new Image()
+	previewImage.src = normalized
+	previewImage.alt = 'Previsualización del icono'
+	previewImage.className = 'icon-preview-image'
+	previewImage.onerror = () => {
+		iconPreview.textContent = 'Icono no disponible'
+		iconPreview.classList.add('is-empty')
+	}
+	iconPreview.appendChild(previewImage)
+}
+
 const getProjectInitial = (name) => {
 	const clean = String(name ?? '').trim()
 	return clean ? escapeHtml(clean.charAt(0).toUpperCase()) : 'P'
@@ -533,6 +739,7 @@ const getProjectNameById = (projectId) => {
 
 const toDisplayProjects = (projects) => {
 	const searchTerm = projectSearchTerm.trim().toLowerCase()
+	const selectedTags = projectTagFilterValues.map((tag) => tag.toLocaleLowerCase())
 
 	return projects
 		.filter((project) => {
@@ -541,12 +748,25 @@ const toDisplayProjects = (projects) => {
 			}
 
 			if (!searchTerm) {
+				if (!selectedTags.length) {
+					return true
+				}
+			} else {
+				const name = String(project.name || '').toLowerCase()
+				const path = String(project.path || '').toLowerCase()
+				if (!name.includes(searchTerm) && !path.includes(searchTerm)) {
+					return false
+				}
+			}
+
+			if (!selectedTags.length) {
 				return true
 			}
 
-			const name = String(project.name || '').toLowerCase()
-			const path = String(project.path || '').toLowerCase()
-			return name.includes(searchTerm) || path.includes(searchTerm)
+			const projectTags = getProjectTags(project).map((tag) => tag.toLocaleLowerCase())
+			return projectTagFilterModeValue === 'all'
+				? selectedTags.every((tag) => projectTags.includes(tag))
+				: selectedTags.some((tag) => projectTags.includes(tag))
 		})
 		.sort((a, b) => {
 			const sortBy = projectSortSelect?.value || projectSortBy
@@ -722,7 +942,7 @@ const syncTerminalProfileOptions = () => {
 		return
 	}
 
-	const profileId = String(project?.defaultEnvironmentProfileId || (Array.isArray(project?.environmentProfiles) ? project.environmentProfiles[0]?.id : '') || '').trim()
+	const profileId = getNormalizedProfileId(project)
 	if (profileId) {
 		terminalProfileSelect.value = profileId
 	}
@@ -963,11 +1183,22 @@ const appendProcessLog = (payload, message, kind = 'log') => {
 }
 
 const renderProcessesView = () => {
-	const snapshots = Array.from(processSnapshots.values()).sort((a, b) => {
-		const aTime = new Date(a.updatedAt || 0).getTime()
-		const bTime = new Date(b.updatedAt || 0).getTime()
-		return bTime - aTime
-	})
+	const snapshots = Array.from(processSnapshots.values())
+		.filter((item) => {
+			const projectName = String(item.projectName || '').toLowerCase()
+			const command = String(item.command || '').toLowerCase()
+			const processKey = String(item.processKey || '').toLowerCase()
+			const text = `${projectName} ${command} ${processKey}`.trim()
+			const matchesTerm = !processFilterTerm || text.includes(processFilterTerm)
+			const currentStatus = item.status === 'stopping' ? 'stopping' : (runningProjectIds.has(item.projectId) || item.status === 'running' ? 'running' : (item.status || 'stopped'))
+			const matchesStatus = processFilterStatusValue === 'all' || currentStatus === processFilterStatusValue
+			return matchesTerm && matchesStatus
+		})
+		.sort((a, b) => {
+			const aTime = new Date(a.updatedAt || 0).getTime()
+			const bTime = new Date(b.updatedAt || 0).getTime()
+			return bTime - aTime
+		})
 
 	if (!snapshots.length) {
 		processesView.innerHTML = `
@@ -1083,7 +1314,7 @@ const renderProcessesView = () => {
 }
 
 const setActiveTab = (tabName) => {
-	activeTab = tabName
+	setUiState({ activeTab: tabName })
 	const showProjects = tabName === 'projects'
 	const showProcesses = tabName === 'processes'
 	const showTerminal = tabName === 'terminal'
@@ -1119,16 +1350,25 @@ const setActiveTab = (tabName) => {
 	}
 
 	if (showHistory) {
+		setUiState({ historyFilterTerm: '', historyFilterStatusValue: 'all' })
+		if (historySearchInput) historySearchInput.value = ''
+		if (historyFilterStatus) historyFilterStatus.value = 'all'
 		renderHistoryView()
 	}
 }
 
+const resetDraftEnvironmentProfiles = () => {
+	setUiState({ projectEnvironmentProfiles: [], projectDefaultEnvironmentProfileId: '' })
+}
+
 const resetFormMode = () => {
-	editingProjectId = null
+	setUiState({ editingProjectId: null })
 	formTitle.textContent = 'Agrega proyectos locales'
 	formSubtitle.textContent = 'Guarda nombre, ruta, varios comandos e icono para ejecutar mas rapido.'
 	submitProjectButton.textContent = 'Guardar proyecto'
 	cancelEditButton.hidden = true
+	autoDetectButton.hidden = false
+	resetDraftEnvironmentProfiles()
 }
 
 const startEditMode = (projectId) => {
@@ -1144,15 +1384,18 @@ const startEditMode = (projectId) => {
 
 	setActiveTab('projects')
 
-	editingProjectId = projectId
+	setUiState({ editingProjectId: projectId })
 	nameInput.value = project.name
 	pathInput.value = project.path
 	iconInput.value = project.icon || ''
 	commandsInput.value = project.commands.join('\n')
+	projectTagsInput.value = getProjectTags(project).join(', ')
 	formTitle.textContent = `Editando: ${project.name}`
 	formSubtitle.textContent = 'Actualiza nombre, ruta, comandos o icono y guarda los cambios.'
 	submitProjectButton.textContent = 'Guardar cambios'
 	cancelEditButton.hidden = false
+	autoDetectButton.hidden = true
+	resetDraftEnvironmentProfiles()
 	setFeedback('Modo edicion activo.', 'info')
 	nameInput.focus()
 }
@@ -1210,6 +1453,7 @@ const renderProjects = (projects) => {
 								<div>
 									<h3>${escapeHtml(project.name)}</h3>
 									<p class="project-path-label">${escapeHtml(project.path)}</p>
+									<div class="project-tags">${renderProjectTags(project)}</div>
 								</div>
 							</div>
 							<div class="compact-header-meta">
@@ -1264,6 +1508,7 @@ const renderProjects = (projects) => {
 								<div>
 									<h3>${escapeHtml(project.name)}</h3>
 									<p class="project-path-label">${escapeHtml(project.path)}</p>
+									<div class="project-tags">${renderProjectTags(project)}</div>
 								</div>
 							</div>
 						</header>
@@ -1324,15 +1569,16 @@ const renderProjects = (projects) => {
 
 const loadProjects = async () => {
 	const projects = await window.projectsApi.list()
-	currentProjects = projects
+	setUiState({ currentProjects: projects })
 	currentProjects.forEach((project) => {
 		const existingSelected = selectedEnvironmentProfileByProjectId.get(project.id)
 		const availableProfiles = Array.isArray(project.environmentProfiles) ? project.environmentProfiles : []
 		const validSelected = availableProfiles.some((profile) => profile.id === existingSelected)
 		if (!validSelected) {
-			selectedEnvironmentProfileByProjectId.set(project.id, project.defaultEnvironmentProfileId || availableProfiles[0]?.id || '')
+			selectedEnvironmentProfileByProjectId.set(project.id, project.lastUsedEnvironmentProfileId || project.defaultEnvironmentProfileId || availableProfiles[0]?.id || '')
 		}
 	})
+	await syncProjectTagOptions()
 	syncTerminalProjectOptions()
 	syncTerminalProfileOptions()
 	if (terminalOpenButton) {
@@ -1380,6 +1626,7 @@ browseIconButton.addEventListener('click', async () => {
 	const selectedIcon = await window.projectsApi.pickIcon()
 	if (selectedIcon) {
 		iconInput.value = toFileUrl(selectedIcon)
+		renderIconPreview(iconInput.value)
 	}
 })
 
@@ -1394,6 +1641,7 @@ terminalProfileSelect.addEventListener('change', () => {
 	const projectId = terminalProjectSelect.value
 	if (projectId) {
 		selectedEnvironmentProfileByProjectId.set(projectId, terminalProfileSelect.value)
+		persistLastUsedEnvironmentProfile(projectId, terminalProfileSelect.value)
 	}
 })
 
@@ -1410,39 +1658,82 @@ const syncViewSwitcherButtons = () => {
 }
 
 viewModeGridBtn?.addEventListener('click', () => {
-	projectViewMode = 'grid'
+	setUiState({ projectViewMode: 'grid' })
 	localStorage.setItem('fluxdev_project_view_mode', 'grid')
 	syncViewSwitcherButtons()
 	renderProjects(currentProjects)
 })
 
 viewModeCompactBtn?.addEventListener('click', () => {
-	projectViewMode = 'compact'
+	setUiState({ projectViewMode: 'compact' })
 	localStorage.setItem('fluxdev_project_view_mode', 'compact')
 	syncViewSwitcherButtons()
 	renderProjects(currentProjects)
 })
 
 projectSearchInput.addEventListener('input', () => {
-	projectSearchTerm = projectSearchInput.value
+	setUiState({ projectSearchTerm: projectSearchInput.value })
 	renderProjects(currentProjects)
 })
 
 favoritesOnlyInput.addEventListener('change', () => {
-	favoritesOnly = favoritesOnlyInput.checked
+	setUiState({ favoritesOnly: favoritesOnlyInput.checked })
 	renderProjects(currentProjects)
 })
 
 projectSortSelect?.addEventListener('change', () => {
-	projectSortBy = projectSortSelect.value
+	setUiState({ projectSortBy: projectSortSelect.value })
+	renderProjects(currentProjects)
+})
+
+projectTagFilter?.addEventListener('change', () => {
+	setUiState({
+		projectTagFilter: Array.from(projectTagFilter.selectedOptions).map((option) => option.value),
+	})
+	renderProjects(currentProjects)
+})
+
+projectTagFilter?.addEventListener('mousedown', (event) => {
+	const option = event.target.closest('option')
+	if (!option) {
+		return
+	}
+
+	event.preventDefault()
+	option.selected = !option.selected
+	projectTagFilter.dispatchEvent(new Event('change', { bubbles: true }))
+})
+
+projectTagFilterMode?.addEventListener('change', () => {
+	setUiState({ projectTagFilterMode: projectTagFilterMode.value })
 	renderProjects(currentProjects)
 })
 
 iconTemplateButtons.forEach((button) => {
+	const template = button.dataset.template || ''
+	const label = button.dataset.label || button.textContent.trim() || 'Icono'
+	const iconUrl = normalizeIconInput(template)
+	button.innerHTML = `
+		<img class="icon-template-preview" src="${escapeHtml(iconUrl || '')}" alt="${escapeHtml(label)}" />
+		<span>${escapeHtml(label)}</span>
+	`
 	button.addEventListener('click', () => {
-		iconInput.value = button.dataset.template || ''
+		iconInput.value = template
+		renderIconPreview(template)
 	})
 })
+
+iconInput.addEventListener('input', () => {
+	renderIconPreview(iconInput.value)
+})
+
+addProjectEnvironmentProfilesButton?.addEventListener('click', () => {
+	openEnvironmentProfilesModal()
+})
+
+if (iconInput.value) {
+	renderIconPreview(iconInput.value)
+}
 
 tabButtons.forEach((button) => {
 	button.addEventListener('click', () => {
@@ -1457,7 +1748,13 @@ form.addEventListener('submit', async (event) => {
 		name: nameInput.value,
 		path: pathInput.value,
 		icon: normalizeIconInput(iconInput.value),
-		commands: parseCommands(commandsInput.value)
+		commands: parseCommands(commandsInput.value),
+		tags: parseProjectTags(projectTagsInput.value),
+		environmentProfiles: projectEnvironmentProfiles,
+		defaultEnvironmentProfileId: projectDefaultEnvironmentProfileId || projectEnvironmentProfiles[0]?.id || '',
+		lastUsedEnvironmentProfileId: editingProjectId
+			? currentProjects.find((project) => project.id === editingProjectId)?.lastUsedEnvironmentProfileId || ''
+			: ''
 	}
 
 	try {
@@ -1657,7 +1954,9 @@ projectsList.addEventListener('change', (event) => {
 
 	const projectId = card.dataset.projectId
 	if (event.target.classList.contains('profile-checkbox')) {
-		selectedEnvironmentProfileByProjectId.set(projectId, readSelectedProfileIds(card))
+		const profileIds = readSelectedProfileIds(card)
+		selectedEnvironmentProfileByProjectId.set(projectId, profileIds)
+		persistLastUsedEnvironmentProfile(projectId, profileIds[profileIds.length - 1])
 		renderProjects(currentProjects)
 	}
 })
@@ -1683,6 +1982,7 @@ projectsList.addEventListener('click', async (event) => {
 			const runResult = await window.projectsApi.run(projectId, command, profileIds)
 			runningProjectIds.add(projectId)
 			selectedEnvironmentProfileByProjectId.set(projectId, profileIds)
+			persistLastUsedEnvironmentProfile(projectId, profileIds[profileIds.length - 1])
 			upsertProcessSnapshot(runResult)
 			appendProcessLog({ projectId, processKey: runResult.processKey }, `Ejecutando: ${command}`, 'sys')
 			const project = currentProjects.find((p) => p.id === projectId)
@@ -1700,6 +2000,7 @@ projectsList.addEventListener('click', async (event) => {
 		try {
 			await window.projectsApi.runAll(projectId, profileIds)
 			selectedEnvironmentProfileByProjectId.set(projectId, profileIds)
+			persistLastUsedEnvironmentProfile(projectId, profileIds[profileIds.length - 1])
 			setFeedback('Multi-run iniciado correctamente.', 'success')
 		} catch (error) {
 			setFeedback(error?.message || 'No se pudo iniciar el multi-run.', 'error')
@@ -1828,6 +2129,18 @@ projectsList.addEventListener('click', async (event) => {
 	}
 })
 
+window.addEventListener('error', (event) => {
+	const errorMessage = event?.error?.message || 'Error inesperado en la interfaz.'
+	console.error('Renderer error:', errorMessage)
+	showToast(errorMessage, 'error')
+})
+
+window.addEventListener('unhandledrejection', (event) => {
+	const reason = event?.reason instanceof Error ? event.reason.message : String(event?.reason || 'Error no controlado.')
+	console.error('Unhandled renderer rejection:', reason)
+	showToast(reason, 'error')
+})
+
 window.projectsApi.onRunUpdate((event) => {
 	const eventKey = String(event?.processKey || event?.projectId || '').trim()
 	const eventProjectId = String(event?.projectId || '').trim()
@@ -1838,8 +2151,7 @@ window.projectsApi.onRunUpdate((event) => {
 		if (eventProjectId) {
 			runningProjectIds.delete(eventProjectId)
 		}
-		renderProjects(currentProjects)
-		renderProcessesView()
+		scheduleProjectUiRefresh()
 		return
 	}
 
@@ -1867,8 +2179,7 @@ window.projectsApi.onRunUpdate((event) => {
 		if (existingEntry) {
 			existingEntry.status = historyStatus
 		}
-		renderProjects(currentProjects)
-		renderProcessesView()
+		scheduleProjectUiRefresh()
 		return
 	}
 
@@ -1876,13 +2187,11 @@ window.projectsApi.onRunUpdate((event) => {
 
 	if (event.status === 'running') {
 		runningProjectIds.add(event.projectId)
-		renderProjects(currentProjects)
 	}
 
 	if (event.status === 'deleted') {
 		runningProjectIds.delete(event.projectId)
 		processSnapshots.delete(event.projectId)
-		renderProjects(currentProjects)
 	}
 
 	if (event.status === 'log') {
@@ -1900,7 +2209,7 @@ window.projectsApi.onRunUpdate((event) => {
 
 	appendProcessEventToTerminalViewer(event)
 
-	renderProcessesView()
+	scheduleProjectUiRefresh()
 
 	if (event.status === 'running') {
 		showToast(event.message, 'success', 3000)
@@ -2045,6 +2354,128 @@ const renderHistoryView = () => {
 	}).join('')
 }
 
+const openGlobalSearchModal = () => {
+	if (!globalSearchModal) {
+		return
+	}
+
+	globalSearchModal.classList.remove('is-hidden')
+	globalSearchModal.setAttribute('aria-hidden', 'false')
+	renderGlobalSearchResults()
+	setTimeout(() => globalSearchInput?.focus(), 20)
+}
+
+const closeGlobalSearchModal = () => {
+	if (!globalSearchModal) {
+		return
+	}
+
+	globalSearchModal.classList.add('is-hidden')
+	globalSearchModal.setAttribute('aria-hidden', 'true')
+	if (globalSearchInput) {
+		globalSearchInput.value = ''
+	}
+	renderGlobalSearchResults()
+}
+
+const renderGlobalSearchResults = () => {
+	if (!globalSearchResults || !currentProjects.length) {
+		if (globalSearchResults) {
+			globalSearchResults.innerHTML = `
+				<article class="empty-state">
+					<h3>Sin proyectos</h3>
+					<p>Agrega un proyecto para lanzar comandos desde aqui.</p>
+				</article>
+			`
+		}
+		return
+	}
+
+	const query = (globalSearchInput?.value || '').trim().toLowerCase()
+	const results = []
+
+	currentProjects.forEach((project) => {
+		const commands = Array.isArray(project.commands) ? project.commands : []
+		const projectMatches = !query || `${project.name} ${project.path}`.toLowerCase().includes(query)
+		const commandMatches = !query ? commands.slice(0, 4) : commands.filter((command) => command.toLowerCase().includes(query))
+
+		if (projectMatches) {
+			const selectedCommands = commandMatches.length ? commandMatches : commands.slice(0, 1)
+			selectedCommands.forEach((command) => {
+				results.push({
+					projectId: project.id,
+					projectName: project.name,
+					projectPath: project.path,
+					command
+				})
+			})
+		}
+		if (!projectMatches && commandMatches.length) {
+			commandMatches.forEach((command) => {
+				results.push({
+					projectId: project.id,
+					projectName: project.name,
+					projectPath: project.path,
+					command
+				})
+			})
+		}
+	})
+
+	if (!results.length) {
+		globalSearchResults.innerHTML = `
+			<article class="empty-state">
+				<h3>Sin coincidencias</h3>
+				<p>Prueba un nombre, ruta o comando distinto.</p>
+			</article>
+		`
+		return
+	}
+
+	globalSearchResults.innerHTML = results.slice(0, 12).map((entry) => `
+		<button type="button" class="global-search-item" data-project-id="${escapeHtml(entry.projectId)}" data-command="${escapeHtml(entry.command)}">
+			<div>
+				<strong>${escapeHtml(entry.projectName)}</strong>
+				<small>${escapeHtml(entry.command)}</small>
+			</div>
+			<span class="global-search-badge">${escapeHtml(entry.projectPath)}</span>
+		</button>
+	`).join('')
+
+	globalSearchResults.querySelectorAll('.global-search-item').forEach((button) => {
+		button.addEventListener('click', async () => {
+			const projectId = button.dataset.projectId
+			const command = button.dataset.command
+			if (!projectId || !command) {
+				return
+			}
+
+			try {
+				const project = currentProjects.find((item) => item.id === projectId)
+				const profileIds = project ? getNormalizedProfileIds(project) : []
+				const runResult = await window.projectsApi.run(projectId, command, profileIds)
+				runningProjectIds.add(projectId)
+				selectedEnvironmentProfileByProjectId.set(projectId, profileIds)
+				upsertProcessSnapshot(runResult)
+				appendProcessLog({ projectId, processKey: runResult.processKey }, `Ejecutando: ${command}`, 'sys')
+				if (project) {
+					addToHistory(projectId, project.name, command, 'running')
+				}
+				renderProjects(currentProjects)
+				renderProcessesView()
+				if (showDashboard) {
+					renderDashboard()
+				}
+				closeGlobalSearchModal()
+				setFeedback(`Comando lanzado: ${command}`, 'success')
+			} catch (error) {
+				setFeedback(error?.message || 'No se pudo ejecutar el comando.', 'error')
+				showToast(error?.message || 'No se pudo ejecutar el comando.', 'error')
+			}
+		})
+	})
+}
+
 const renderDashboard = () => {
 	const total = currentProjects.length
 	const running = runningProjectIds.size
@@ -2053,25 +2484,7 @@ const renderDashboard = () => {
 	statTotal.textContent = total
 	statRunning.textContent = running
 	statFavorites.textContent = favorites
-
-	const recent = executionHistory.slice(0, 5)
-	if (recent.length === 0) {
-		dashboardRecentList.innerHTML = ''
-		dashboardRecentEmpty.hidden = false
-	} else {
-		dashboardRecentEmpty.hidden = true
-		dashboardRecentList.innerHTML = recent.map((entry) => {
-			const time = new Date(entry.timestamp)
-			const timeStr = time.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })
-			return `<div class="recent-item" data-history-id="${entry.id}">
-				<span class="recent-dot ${escapeHtml(entry.status)}"></span>
-				<span class="recent-project">${escapeHtml(entry.projectName)}</span>
-				<span class="recent-command">${escapeHtml(entry.command)}</span>
-				<span class="recent-time">${timeStr}</span>
-				<button type="button" class="recent-remove" title="Quitar">${renderButtonIcon('x', 'Quitar')}</button>
-			</div>`
-		}).join('')
-	}
+	renderGlobalTagsManager()
 
 	const seen = new Set()
 	const quickRunEntries = []
@@ -2100,18 +2513,93 @@ const renderDashboard = () => {
 	renderTopProjectsChart()
 }
 
-dashboardRecentList?.addEventListener('click', (event) => {
-	const removeBtn = event.target.closest('.recent-remove')
-	if (!removeBtn) return
-	const item = removeBtn.closest('.recent-item')
-	if (!item) return
-	const id = Number(item.dataset.historyId)
-	if (!id) return
-	const index = executionHistory.findIndex((e) => e.id === id)
-	if (index === -1) return
-	executionHistory.splice(index, 1)
-	persistHistory()
-	renderDashboard()
+const renderGlobalTagsManager = async () => {
+	if (!globalTagsList || !globalTagsEmpty || !window.projectsApi?.listTags) {
+		return
+	}
+
+	try {
+		const tags = await window.projectsApi.listTags()
+		globalTagsEmpty.hidden = tags.length > 0
+		globalTagsList.innerHTML = tags.map((tag) => `
+			<article class="global-tag-item" data-tag-name="${escapeHtml(tag.name)}">
+				<div class="global-tag-info">
+					<span class="project-tag">${escapeHtml(tag.name)}</span>
+					<span class="global-tag-count">${tag.count} proyecto(s)</span>
+				</div>
+				<div class="global-tag-actions">
+					<button type="button" class="icon-button global-tag-rename" title="Renombrar etiqueta" aria-label="Renombrar etiqueta">${renderButtonIcon('edit', 'Renombrar')}</button>
+					<button type="button" class="icon-button global-tag-delete" title="Eliminar etiqueta" aria-label="Eliminar etiqueta">${renderButtonIcon('trash', 'Eliminar')}</button>
+				</div>
+			</article>
+		`).join('')
+	} catch (error) {
+		setFeedback(error?.message || 'No se pudieron cargar las etiquetas globales.', 'error')
+	}
+}
+
+globalTagForm?.addEventListener('submit', async (event) => {
+	event.preventDefault()
+	const name = globalTagInput.value.trim()
+	if (!name) {
+		return
+	}
+
+	try {
+		await window.projectsApi.createTag(name)
+		globalTagInput.value = ''
+		await renderGlobalTagsManager()
+		await syncProjectTagOptions()
+		setFeedback('Etiqueta global creada.', 'success')
+	} catch (error) {
+		setFeedback(error?.message || 'No se pudo crear la etiqueta.', 'error')
+	}
+})
+
+globalTagsList?.addEventListener('click', async (event) => {
+	const item = event.target.closest('.global-tag-item')
+	const button = event.target.closest('button')
+	if (!item || !button) {
+		return
+	}
+
+	const oldName = item.dataset.tagName
+	try {
+		if (button.classList.contains('global-tag-rename')) {
+			const newName = window.prompt('Nuevo nombre de la etiqueta:', oldName)?.trim()
+			if (!newName || newName === oldName) {
+				return
+			}
+			await window.projectsApi.renameTag(oldName, newName)
+			await loadProjects()
+			await renderGlobalTagsManager()
+			setFeedback('Etiqueta renombrada correctamente.', 'success')
+		}
+
+		if (button.classList.contains('global-tag-delete')) {
+			if (!window.confirm(`Eliminar la etiqueta "${oldName}"?`)) {
+				return
+			}
+			await window.projectsApi.deleteTag(oldName)
+			await renderGlobalTagsManager()
+			await syncProjectTagOptions()
+			setFeedback('Etiqueta eliminada correctamente.', 'success')
+		}
+	} catch (error) {
+		setFeedback(error?.message || 'No se pudo actualizar la etiqueta.', 'error')
+	}
+})
+
+globalSearchInput?.addEventListener('input', () => {
+	renderGlobalSearchResults()
+})
+
+globalSearchCloseButton?.addEventListener('click', closeGlobalSearchModal)
+
+globalSearchModal?.addEventListener('click', (event) => {
+	if (event.target === globalSearchModal) {
+		closeGlobalSearchModal()
+	}
 })
 
 let statusChartInstance = null
@@ -2248,12 +2736,22 @@ const dismissWelcome = () => {
 welcomeStartBtn?.addEventListener('click', dismissWelcome)
 
 historySearchInput?.addEventListener('input', (event) => {
-	historyFilterTerm = event.target.value.trim().toLowerCase()
+	setUiState({ historyFilterTerm: event.target.value.trim().toLowerCase() })
 	renderHistoryView()
 })
 
+processSearchInput?.addEventListener('input', (event) => {
+	setUiState({ processFilterTerm: event.target.value.trim().toLowerCase() })
+	renderProcessesView()
+})
+
+processFilterStatus?.addEventListener('change', (event) => {
+	setUiState({ processFilterStatusValue: event.target.value })
+	renderProcessesView()
+})
+
 historyFilterStatus?.addEventListener('change', (event) => {
-	historyFilterStatusValue = event.target.value
+	setUiState({ historyFilterStatusValue: event.target.value })
 	renderHistoryView()
 })
 
@@ -2274,6 +2772,10 @@ dashboardAutoDetectBtn?.addEventListener('click', () => {
 		toggleDashboard()
 	}
 	autoDetectButton?.click()
+})
+
+dashboardHistoryLink?.addEventListener('click', () => {
+	setActiveTab('history')
 })
 
 dashboardQuickRunList?.addEventListener('click', async (event) => {
@@ -2298,7 +2800,7 @@ dashboardQuickRunList?.addEventListener('click', async (event) => {
 })
 
 const toggleDashboard = () => {
-	showDashboard = !showDashboard
+	setUiState({ showDashboard: !showDashboard })
 	form.classList.toggle('is-hidden', showDashboard)
 	formHeader.classList.toggle('is-hidden', showDashboard)
 	dashboardContent.classList.toggle('is-hidden', !showDashboard)
@@ -2349,7 +2851,17 @@ document.addEventListener('click', (event) => {
 })
 
 document.addEventListener('keydown', (event) => {
+	if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'p') {
+		event.preventDefault()
+		openGlobalSearchModal()
+		return
+	}
+
 	if (event.key === 'Escape') {
+		if (globalSearchModal && !globalSearchModal.classList.contains('is-hidden')) {
+			closeGlobalSearchModal()
+			return
+		}
 		document.querySelectorAll('.project-menu-dropdown.is-open').forEach((d) => d.classList.remove('is-open'))
 	}
 })

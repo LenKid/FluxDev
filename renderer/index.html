@@ -50,6 +50,11 @@
                 <label for="commands">Comandos (uno por linea)</label>
                 <textarea id="commands" name="commands" rows="4" placeholder="npm install&#10;npm run dev" required></textarea>
 
+                <label for="project-tags">Etiquetas</label>
+                <input id="project-tags" name="tags" type="text" list="project-tags-options" placeholder="React, Cliente, Backend" />
+                <datalist id="project-tags-options"></datalist>
+                <p class="input-hint">Separa las etiquetas con comas. Las etiquetas existentes apareceran como sugerencias.</p>
+
                 <label for="icon">Icono (opcional)</label>
                 <div class="field-with-action">
                     <input id="icon" name="icon" type="text" placeholder="https://cdn.jsdelivr.net/... o devicon:react" />
@@ -59,15 +64,18 @@
                     </button>
                 </div>
                 <p class="input-hint">Atajos: <strong>devicon:react</strong>, <strong>devicon:javascript</strong>, <strong>devicon:spring</strong>, <strong>simple:nextdotjs</strong>, etc...</p>
+                <div id="icon-preview" class="icon-preview" aria-live="polite"></div>
                 <div class="icon-presets" role="group" aria-label="Presets de iconos">
-                    <button type="button" class="icon-template" data-template="devicon:javascript">JS</button>
-                    <button type="button" class="icon-template" data-template="devicon:react">React</button>
-                    <button type="button" class="icon-template" data-template="devicon:nodejs">Node</button>
-                    <button type="button" class="icon-template" data-template="devicon:spring">Spring</button>
-                    <button type="button" class="icon-template" data-template="devicon:nextjs">Next.js</button>
-                    <button type="button" class="icon-template" data-template="devicon:angular">Angular</button>
-                    <button type="button" class="icon-template" data-template="devicon:vuejs">Vue</button>
+                    <button type="button" class="icon-template" data-template="devicon:javascript" data-label="JS">JS</button>
+                    <button type="button" class="icon-template" data-template="devicon:react" data-label="React">React</button>
+                    <button type="button" class="icon-template" data-template="devicon:nodejs" data-label="Node">Node</button>
+                    <button type="button" class="icon-template" data-template="devicon:spring" data-label="Spring">Spring</button>
+                    <button type="button" class="icon-template" data-template="devicon:nextjs" data-label="Next.js">Next.js</button>
+                    <button type="button" class="icon-template" data-template="devicon:angular" data-label="Angular">Angular</button>
+                    <button type="button" class="icon-template" data-template="devicon:vuejs" data-label="Vue">Vue</button>
                 </div>
+
+                <button type="button" id="new-project-environment-profiles" class="secondary-button">Perfiles de entorno</button>
 
                 <div class="form-actions">
                     <button id="submit-project" class="submit" type="submit">Guardar proyecto</button>
@@ -118,10 +126,23 @@
                         <canvas id="top-projects-chart"></canvas>
                     </div>
                 </div>
+                <section class="dashboard-tag-manager" aria-labelledby="dashboard-tag-manager-title">
+                    <div class="dashboard-section-heading">
+                        <div>
+                            <h3 id="dashboard-tag-manager-title">Gestor de etiquetas</h3>
+                            <p>Administra etiquetas reutilizables para organizar tus proyectos.</p>
+                        </div>
+                    </div>
+                    <form id="global-tag-form" class="global-tag-form">
+                        <input id="global-tag-input" type="text" maxlength="40" placeholder="Nueva etiqueta" aria-label="Nueva etiqueta" />
+                        <button type="submit" class="secondary-button">Crear etiqueta</button>
+                    </form>
+                    <div id="global-tags-list" class="global-tags-list"></div>
+                    <p id="global-tags-empty" class="dashboard-recent-empty">No hay etiquetas globales todavía.</p>
+                </section>
                 <div class="dashboard-recent">
                     <h3>Actividad reciente</h3>
-                    <div id="dashboard-recent-list" class="dashboard-recent-list"></div>
-                    <p id="dashboard-recent-empty" class="dashboard-recent-empty">No hay actividad reciente en esta sesion.</p>
+                    <button type="button" id="dashboard-history-link" class="dashboard-history-link">Ver historial completo</button>
                 </div>
                 <div class="dashboard-quick-run">
                     <h3>Ejecucion rapida</h3>
@@ -137,38 +158,47 @@
                 <p id="runtime-info"></p>
             </header>
             <div class="project-filters">
-                <input id="project-search" type="text" placeholder="Filtrar por nombre o ruta" />
-                <select id="project-sort">
-                    <option value="name">Ordenar por nombre</option>
-                    <option value="path">Ordenar por ruta</option>
-                    <option value="updatedAt">Ordenar por fecha</option>
-                    <option value="favorite">Favoritos primero</option>
-                </select>
-                <label class="favorite-filter">
-                    <input id="favorites-only" type="checkbox" />
-                    Solo favoritos
-                </label>
-                <div class="view-switcher" role="group" aria-label="Modo de visualización">
-                    <button type="button" id="view-mode-grid" class="view-switch-btn is-active" title="Vista cuadrícula">
-                        <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                            <rect x="4" y="4" width="6" height="6" rx="1" />
-                            <rect x="14" y="4" width="6" height="6" rx="1" />
-                            <rect x="4" y="14" width="6" height="6" rx="1" />
-                            <rect x="14" y="14" width="6" height="6" rx="1" />
-                        </svg>
-                    </button>
-                    <button type="button" id="view-mode-compact" class="view-switch-btn" title="Lista compacta">
-                        <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
-                            <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
-                            <line x1="9" y1="6" x2="20" y2="6" />
-                            <line x1="9" y1="12" x2="20" y2="12" />
-                            <line x1="9" y1="18" x2="20" y2="18" />
-                            <circle cx="5" cy="6" r="1" />
-                            <circle cx="5" cy="12" r="1" />
-                            <circle cx="5" cy="18" r="1" />
-                        </svg>
-                    </button>
+                <div class="project-filter-primary">
+                    <input id="project-search" type="text" placeholder="Filtrar por nombre o ruta" />
+                    <select id="project-tag-filter" multiple aria-label="Filtrar por etiquetas"></select>
+                    <select id="project-tag-filter-mode" aria-label="Modo de filtro de etiquetas">
+                        <option value="any">Cualquiera</option>
+                        <option value="all">Todas</option>
+                    </select>
+                    <select id="project-sort">
+                        <option value="name">Ordenar por nombre</option>
+                        <option value="path">Ordenar por ruta</option>
+                        <option value="updatedAt">Ordenar por fecha</option>
+                        <option value="favorite">Favoritos primero</option>
+                    </select>
+                </div>
+                <div class="project-filter-secondary">
+                    <label class="favorite-filter">
+                        <input id="favorites-only" type="checkbox" />
+                        Solo favoritos
+                    </label>
+                    <div class="view-switcher" role="group" aria-label="Modo de visualización">
+                        <button type="button" id="view-mode-grid" class="view-switch-btn is-active" title="Vista cuadrícula">
+                            <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                <rect x="4" y="4" width="6" height="6" rx="1" />
+                                <rect x="14" y="4" width="6" height="6" rx="1" />
+                                <rect x="4" y="14" width="6" height="6" rx="1" />
+                                <rect x="14" y="14" width="6" height="6" rx="1" />
+                            </svg>
+                        </button>
+                        <button type="button" id="view-mode-compact" class="view-switch-btn" title="Lista compacta">
+                            <svg class="ui-icon" width="24" height="24" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" fill="none" stroke-linecap="round" stroke-linejoin="round">
+                                <path stroke="none" d="M0 0h24v24H0z" fill="none"/>
+                                <line x1="9" y1="6" x2="20" y2="6" />
+                                <line x1="9" y1="12" x2="20" y2="12" />
+                                <line x1="9" y1="18" x2="20" y2="18" />
+                                <circle cx="5" cy="6" r="1" />
+                                <circle cx="5" cy="12" r="1" />
+                                <circle cx="5" cy="18" r="1" />
+                            </svg>
+                        </button>
+                    </div>
                 </div>
             </div>
             <div class="tabs" role="tablist" aria-label="Vistas de proyectos">
@@ -180,7 +210,18 @@
                 <button type="button" class="tab-button" data-tab="about" role="tab" aria-selected="false">Acerca de</button>
             </div>
             <section id="projects-list" class="projects-list tab-panel"></section>
-            <section id="processes-view" class="processes-view tab-panel is-hidden"></section>
+            <section id="processes-view" class="processes-view tab-panel is-hidden">
+                <div class="processes-toolbar">
+                    <input id="process-search" type="text" placeholder="Buscar proceso, proyecto o comando" />
+                    <select id="process-filter-status">
+                        <option value="all">Todos</option>
+                        <option value="running">En ejecucion</option>
+                        <option value="stopping">Deteniendo</option>
+                        <option value="stopped">Detenido</option>
+                        <option value="failed">Error</option>
+                    </select>
+                </div>
+            </section>
             <section id="terminal-view" class="terminal-view tab-panel is-hidden">
                 <div class="terminal-toolbar">
                     <div class="terminal-select-group">
@@ -322,6 +363,23 @@
                 </div>
             </article>
         </section>
+
+        <section id="global-search-modal" class="detect-modal is-hidden" aria-hidden="true">
+            <article class="detect-dialog global-search-dialog" role="dialog" aria-modal="true" aria-labelledby="global-search-title">
+                <header>
+                    <h3 id="global-search-title">Buscar proyecto y comando</h3>
+                    <button type="button" id="global-search-close" class="icon-button" title="Cerrar" aria-label="Cerrar">
+                        <img class="ui-icon" src="../public/icons/tabler/x.svg" alt="" aria-hidden="true" />
+                        <span class="sr-only">Cerrar</span>
+                    </button>
+                </header>
+                <div class="global-search-box">
+                    <input id="global-search-input" type="text" placeholder="Busca por nombre, ruta o comando" autocomplete="off" />
+                </div>
+                <div id="global-search-results" class="global-search-results"></div>
+            </article>
+        </section>
+
         <div id="toast-container"></div>
     </main>
 
@@ -363,6 +421,7 @@
         </article>
     </section>
 </body>
+<script src="./state-store.js"></script>
 <script src="./app.js"></script>
 
 </html>

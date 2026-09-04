@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/package.json",
   "name": "fluxdev",
   "productName": "FluxDev",
-  "version": "1.0.6",
+  "version": "1.1.0",
   "description": "Multi-Shells para proyectos de desarrollo locales",
   "repository": {
     "type": "git",

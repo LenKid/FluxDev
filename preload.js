@@ -34,6 +34,10 @@ contextBridge.exposeInMainWorld('projectsApi', {
     openExternal: (url) => ipcRenderer.invoke('shell:open-external', { url }),
     loadHistory: () => ipcRenderer.invoke('history:list'),
     saveHistory: (history) => ipcRenderer.invoke('history:save', { history }),
+    listTags: () => ipcRenderer.invoke('tags:list'),
+    createTag: (name) => ipcRenderer.invoke('tags:create', { name }),
+    renameTag: (oldName, newName) => ipcRenderer.invoke('tags:rename', { oldName, newName }),
+    deleteTag: (name) => ipcRenderer.invoke('tags:delete', { name }),
     onRunUpdate: (listener) => {
         const subscription = (_event, payload) => listener(payload)
         ipcRenderer.on('projects:run-update', subscription)

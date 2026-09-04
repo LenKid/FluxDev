@@ -1,0 +1,8 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^cd 'k:/Workspace/FluxDev' ; node --check renderer/app\\.js ; node --check main\\.js$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
+}

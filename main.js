@@ -1,361 +1,90 @@
-const { app, BrowserWindow, ipcMain, dialog, shell } = require("electron/main");
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  shell,
+  Notification,
+} = require("electron/main");
 const path = require("node:path");
 const fs = require("node:fs/promises");
 const fsSync = require("node:fs");
 const { spawn, spawnSync } = require("node:child_process");
-const ElectronStore = require("electron-store");
-const Store = ElectronStore.default || ElectronStore;
+
+const {
+  toPathKey,
+  readProjects,
+  readHistory,
+  saveHistory,
+  readGlobalTags,
+  saveGlobalTags,
+  saveProjects,
+  hasProjectWithPath,
+  assertUniqueProjectPath,
+  sanitizeImportedProjects,
+  exportProjectsToFile,
+  importProjectsFromFile,
+} = require("./store-manager");
+
+const { createProcessManager } = require("./process-manager");
+const { registerIpcHandlers } = require("./ipc-handlers");
 
 let pty = null;
 const USE_PTY = false;
 
-const PROJECTS_FILE = "projects.json";
 const runningProcesses = new Map();
 const activeCommands = new Map();
 const runningSequences = new Map();
 const terminalSessions = new Map();
 const isWindows = process.platform === "win32";
 
-const stripAnsiCodes = (text) => {
-  if (!text || typeof text !== "string") {
-    return "";
-  }
-  return text
-    .replace(/\x1b\[[0-9;]*[a-zA-Z]/g, "")
-    .replace(/\x1b\][^\x07]*\x07/g, "")
-    .replace(/\x1b\[[^a-zA-Z]*[a-zA-Z]/g, "")
-    .replace(/[\x1b\x9b][?][0-9]*[a-zA-Z]/g, "")
-    .replace(/[\x1b\x9b][0-9]*[a-zA-Z]/g, "");
-};
+let processManager = null;
+
 
 app.setName("FluxDev");
+
+const showProcessNotification = (title, body) => {
+  try {
+    if (typeof Notification !== "function") {
+      return;
+    }
+
+    const notification = new Notification({
+      title,
+      body,
+    });
+    notification.show();
+  } catch {
+    // Los sistemas sin soporte de notificaciones no deben bloquear la app.
+  }
+};
+
+process.on("uncaughtException", (error) => {
+  console.error("Uncaught exception:", error);
+  showProcessNotification("FluxDev: error interno", error?.message || "Se produjo un error inesperado.");
+});
+
+process.on("unhandledRejection", (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason || "Error no controlado.");
+  console.error("Unhandled rejection:", message);
+  showProcessNotification("FluxDev: error no controlado", message);
+});
 
 if (isWindows && typeof app.setAppUserModelId === "function") {
   app.setAppUserModelId("LenKid.FluxDev");
 }
 
-const store = new Store({
-  name: "fluxdev",
-  defaults: {
-    projects: [],
-    history: [],
-  },
-});
-
-const getLegacyProjectsFilePath = () =>
-  path.join(app.getPath("userData"), PROJECTS_FILE);
-
-const normalizeCommands = (commands) => {
-  if (!Array.isArray(commands)) {
-    return [];
-  }
-
-  return commands.map((command) => String(command).trim()).filter(Boolean);
-};
-
-const parseEnvironmentText = (value) => {
-  const environment = {};
-  const raw = String(value ?? "");
-
-  raw.split("\n").forEach((line) => {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith("#")) {
-      return;
-    }
-
-    const separatorIndex = trimmed.indexOf("=");
-    if (separatorIndex <= 0) {
-      return;
-    }
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    const entryValue = trimmed.slice(separatorIndex + 1).trim();
-
-    if (!key) {
-      return;
-    }
-
-    environment[key] = entryValue;
-  });
-
-  return environment;
-};
-
-const normalizeEnvironmentProfile = (profile, index = 0) => {
-  const name = String(profile?.name ?? "").trim();
-  const id = String(
-    profile?.id || `profile-${Date.now().toString(36)}-${index}`,
-  ).trim();
-  const environmentSource =
-    profile?.environment ??
-    profile?.env ??
-    profile?.variables ??
-    profile?.environmentText ??
-    "";
-  const environment =
-    typeof environmentSource === "string"
-      ? parseEnvironmentText(environmentSource)
-      : Object.fromEntries(
-          Object.entries(environmentSource || {})
-            .map(([key, value]) => [
-              String(key).trim(),
-              String(value ?? "").trim(),
-            ])
-            .filter(([key]) => Boolean(key)),
-        );
-  const activate = String(profile?.activate || "").trim();
-
-  return {
-    id,
-    name,
-    environment,
-    activate: activate || undefined,
-  };
-};
-
-const normalizeEnvironmentProfiles = (profiles) => {
-  if (!Array.isArray(profiles)) {
-    return [];
-  }
-
-  return profiles
-    .map((profile, index) => normalizeEnvironmentProfile(profile, index))
-    .filter(
-      (profile) => profile.name || Object.keys(profile.environment).length > 0,
-    );
-};
-
-const resolveProjectEnvironmentProfile = (project, profileId) => {
-  const profiles = Array.isArray(project?.environmentProfiles)
-    ? project.environmentProfiles
-    : [];
-
-  if (!profiles.length) {
-    return null;
-  }
-
-  const normalizedProfileId = String(
-    profileId ?? project?.defaultEnvironmentProfileId ?? profiles[0].id ?? "",
-  ).trim();
-  return (
-    profiles.find((profile) => profile.id === normalizedProfileId) ||
-    profiles[0] ||
-    null
-  );
-};
-
-const resolveRuntimeEnvironment = (project, profileId) => {
-  const profile = resolveProjectEnvironmentProfile(project, profileId);
-
-  return {
-    profile,
-    activate: profile?.activate || "",
-    env: {
-      ...process.env,
-      ...(profile?.environment || {}),
-    },
-  };
-};
-
-const stripEdgeSeparators = (text) => String(text || '')
-  .trim()
-  .replace(/^(?:&&?|\|\|?|;)+\s*/, '')
-  .replace(/\s*(?:&&?|\|\|?|;)+$/, '')
-
-const resolveRuntimeEnvironmentForRun = (project, profileIds = []) => {
-  const ids = Array.isArray(profileIds)
-    ? profileIds.map((id) => String(id ?? '').trim()).filter(Boolean)
-    : [];
-  const profiles = Array.isArray(project?.environmentProfiles)
-    ? project.environmentProfiles
-    : [];
-  const matched = profiles.filter((profile) => ids.includes(String(profile.id)));
-  let activate = "";
-  let cwd = "";
-  const env = { ...process.env };
-
-  matched.forEach((profile) => {
-    Object.assign(env, profile?.environment || {});
-    const rawActivate = stripEdgeSeparators(profile?.activate);
-    if (rawActivate) {
-      activate = activate ? `${activate} && ${rawActivate}` : rawActivate;
-    }
-    const rawCwd = String(profile?.cwd || '').trim();
-    if (rawCwd) {
-      cwd = rawCwd;
-    }
-  });
-
-  const resolvedCwd = cwd ? path.resolve(project.path, cwd) : project.path;
-  let safeCwd = project.path;
-  try {
-    safeCwd = fsSync.statSync(resolvedCwd).isDirectory() ? resolvedCwd : project.path;
-  } catch {
-    safeCwd = project.path;
-  }
-
-  return { profiles: matched, activate, env, cwd: safeCwd };
-};
-
-const readProjects = async () => {
-  const projects = store.get("projects", []);
-  return Array.isArray(projects) ? projects : [];
-};
-
-const readHistory = async () => {
-  const history = store.get("history", []);
-  return Array.isArray(history) ? history : [];
-};
-
-const saveHistory = async (history) => {
-  store.set("history", history);
-};
-
-const hasProjectWithPath = async (projectPath, excludeProjectId = "") => {
-  const normalizedPath = toPathKey(projectPath);
-  const projects = await readProjects();
-
-  return projects.some((project) => {
-    if (excludeProjectId && project.id === excludeProjectId) {
-      return false;
-    }
-
-    return toPathKey(project.path) === normalizedPath;
-  });
-};
-
-const assertUniqueProjectPath = async (projectPath, excludeProjectId = "") => {
-  const duplicateExists = await hasProjectWithPath(
-    projectPath,
-    excludeProjectId,
-  );
-
-  if (duplicateExists) {
-    throw new Error("Ya existe un proyecto agregado con esa ruta.");
-  }
-};
-
-const saveProjects = async (projects) => {
-  store.set("projects", projects);
-};
-
-const sanitizeImportedProjects = (payloadProjects) => {
-  if (!Array.isArray(payloadProjects)) {
-    throw new Error("El archivo no contiene una lista valida de proyectos.");
-  }
-
-  const seenIds = new Set();
-  const seenPaths = new Set();
-  const normalizedProjects = [];
-
-  payloadProjects.forEach((rawProject, index) => {
-    const validated = validateProjectInput(rawProject);
-    const createdAt = String(rawProject?.createdAt || new Date().toISOString());
-    const updatedAt = rawProject?.updatedAt
-      ? String(rawProject.updatedAt)
-      : undefined;
-    let id = String(
-      rawProject?.id || `imported-${Date.now().toString(36)}-${index}`,
-    );
-    const normalizedPath = toPathKey(validated.path);
-
-    if (seenPaths.has(normalizedPath)) {
-      return;
-    }
-
-    if (seenIds.has(id) || seenPaths.has(normalizedPath)) {
-      id = `imported-${Date.now().toString(36)}-${index}`;
-    }
-
-    seenIds.add(id);
-    seenPaths.add(normalizedPath);
-
-    normalizedProjects.push({
-      id,
-      ...validated,
-      createdAt,
-      updatedAt,
-    });
-  });
-
-  return normalizedProjects;
-};
-
-const exportProjectsToFile = async () => {
-  const projects = await readProjects();
-  const now = new Date();
-  const stamp = now.toISOString().slice(0, 10);
-
-  const result = await dialog.showSaveDialog({
-    title: "Exportar proyectos FluxDev",
-    defaultPath: `fluxdev-backup-${stamp}.json`,
-    filters: [
-      {
-        name: "JSON",
-        extensions: ["json"],
-      },
-    ],
-  });
-
-  if (result.canceled || !result.filePath) {
-    return {
-      canceled: true,
-    };
-  }
-
-  const payload = {
-    app: "FluxDev",
-    schemaVersion: 1,
-    exportedAt: now.toISOString(),
-    projects,
-  };
-
-  await fs.writeFile(result.filePath, JSON.stringify(payload, null, 2), "utf8");
-
-  return {
-    canceled: false,
-    filePath: result.filePath,
-    count: projects.length,
-  };
-};
-
-const importProjectsFromFile = async () => {
-  const result = await dialog.showOpenDialog({
-    title: "Importar proyectos FluxDev",
-    properties: ["openFile"],
-    filters: [
-      {
-        name: "JSON",
-        extensions: ["json"],
-      },
-    ],
-  });
-
-  if (result.canceled || result.filePaths.length === 0) {
-    return {
-      canceled: true,
-    };
-  }
-
-  if (runningProcesses.size > 0) {
-    throw new Error("Deten los procesos en ejecucion antes de importar datos.");
-  }
-
-  const selectedPath = result.filePaths[0];
-  const raw = await fs.readFile(selectedPath, "utf8");
-  const parsed = JSON.parse(raw);
-
-  const projectsPayload = Array.isArray(parsed) ? parsed : parsed?.projects;
-  const importedProjects = sanitizeImportedProjects(projectsPayload);
-
-  await saveProjects(importedProjects);
-
-  return {
-    canceled: false,
-    filePath: selectedPath,
-    count: importedProjects.length,
-  };
-};
+const {
+  stripAnsiCodes,
+  normalizeCommands,
+  normalizeEnvironmentProfiles,
+  resolveProjectEnvironmentProfile,
+  resolveRuntimeEnvironment,
+  stripEdgeSeparators,
+  resolveRuntimeEnvironmentForRun,
+  validateProjectInput,
+  normalizeProjectTags,
+} = require("./project-helpers");
 
 const broadcastRunUpdate = (payload) => {
   BrowserWindow.getAllWindows().forEach((window) => {
@@ -889,47 +618,6 @@ const stopProjectCommand = async (payload = {}) => {
   return { projectId, stopped: false, status: "idle" };
 };
 
-const validateProjectInput = (project) => {
-  const name = String(project?.name ?? "").trim();
-  const projectPath = String(project?.path ?? "").trim();
-  const icon = String(project?.icon ?? "").trim();
-  const commands = normalizeCommands(project?.commands);
-  const favorite = Boolean(project?.favorite);
-  const environmentProfiles = normalizeEnvironmentProfiles(
-    project?.environmentProfiles,
-  );
-  const requestedDefaultProfileId = String(
-    project?.defaultEnvironmentProfileId ?? "",
-  ).trim();
-  const defaultEnvironmentProfileId = environmentProfiles.some(
-    (profile) => profile.id === requestedDefaultProfileId,
-  )
-    ? requestedDefaultProfileId
-    : environmentProfiles[0]?.id || "";
-
-  if (!name) {
-    throw new Error("El nombre del proyecto es obligatorio.");
-  }
-
-  if (!projectPath) {
-    throw new Error("La ruta del proyecto es obligatoria.");
-  }
-
-  if (commands.length === 0) {
-    throw new Error("Debes ingresar al menos un comando.");
-  }
-
-  return {
-    name,
-    path: projectPath,
-    commands,
-    icon,
-    favorite,
-    environmentProfiles,
-    defaultEnvironmentProfileId,
-  };
-};
-
 const runCommandInProject = async (cwd, command, args = []) => {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
@@ -1048,6 +736,17 @@ const spawnProjectCommandProcess = async (project, command, options = {}) => {
         controller.child = null;
       }
 
+      const processName = project?.name || "Proyecto";
+      const outcomeMessage = code === 0
+        ? `Comando completado: ${processName}`
+        : `Comando fallido: ${processName}`;
+
+      if (code === 0) {
+        showProcessNotification("FluxDev: proceso completado", `${processName} · ${command}`);
+      } else {
+        showProcessNotification("FluxDev: proceso fallido", `${processName} · ${command}`);
+      }
+
       if (emitCloseStatus) {
         broadcastRunUpdate({
           projectId: project.id,
@@ -1056,7 +755,7 @@ const spawnProjectCommandProcess = async (project, command, options = {}) => {
           status: "stopped",
           code,
           signal,
-          message: `Proceso finalizado (code: ${code ?? "null"}).`,
+          message: outcomeMessage,
         });
       }
 
@@ -1390,10 +1089,6 @@ const detectEnvironmentProfilesFromProject = async (projectPath) => {
   return profiles;
 };
 
-const toPathKey = (inputPath) => {
-  return path.resolve(String(inputPath || "")).toLowerCase();
-};
-
 const collectDetectedProjects = async (rootPath) => {
   const ignoredFolders = new Set([
     "node_modules",
@@ -1572,348 +1267,6 @@ const autoDetectApplyProjects = async (selectedDetected) => {
   };
 };
 
-const registerIpcHandlers = () => {
-  ipcMain.handle("projects:list", async () => readProjects());
-
-  ipcMain.handle("projects:add", async (_event, payload) => {
-    const projectData = validateProjectInput(payload);
-    await assertUniqueProjectPath(projectData.path);
-    const project = {
-      id: Date.now().toString(36),
-      ...projectData,
-      createdAt: new Date().toISOString(),
-    };
-    const projects = await readProjects();
-    projects.push(project);
-    await saveProjects(projects);
-    return project;
-  });
-
-  ipcMain.handle("projects:update", async (_event, payload) => {
-    const projectId = String(payload?.projectId ?? "").trim();
-    const project = payload?.project;
-    const redetect = Boolean(payload?.redetect);
-
-    if (!projectId) {
-      throw new Error("Debes indicar el proyecto a editar.");
-    }
-
-    const projects = await readProjects();
-    const index = projects.findIndex((item) => item.id === projectId);
-
-    if (index < 0) {
-      throw new Error("Proyecto no encontrado para editar.");
-    }
-
-    let current = { ...projects[index] };
-
-    if (project) {
-      if (project.name) current.name = project.name;
-      if (project.path) current.path = project.path;
-      if (project.commands) current.commands = project.commands;
-      if (project.icon) current.icon = project.icon;
-      if (project.favorite !== undefined) current.favorite = project.favorite;
-      if (project.environmentProfiles)
-        current.environmentProfiles = project.environmentProfiles;
-      if (project.defaultEnvironmentProfileId)
-        current.defaultEnvironmentProfileId =
-          project.defaultEnvironmentProfileId;
-    }
-
-    if (redetect) {
-      const packageJsonPath = path.join(current.path, "package.json");
-      let parsed = null;
-      try {
-        const raw = await fs.readFile(packageJsonPath, "utf8");
-        parsed = JSON.parse(raw);
-      } catch {
-        parsed = null;
-      }
-
-      const newCommands = parsed
-        ? guessCommandsFromPackageJson(parsed)
-        : current.commands;
-      const existingProfiles = current.environmentProfiles || [];
-      const newDetectedProfiles = await detectEnvironmentProfilesFromProject(
-        current.path,
-      );
-      console.log(
-        "[DEBUG] Redetect profiles:",
-        newDetectedProfiles.map((p) => ({
-          id: p.id,
-          name: p.name,
-          activate: p.activate,
-        })),
-      );
-      const existingIds = new Set(existingProfiles.map((p) => p.id));
-      const mergedProfiles = [
-        ...existingProfiles,
-        ...newDetectedProfiles.filter((p) => !existingIds.has(p.id)),
-      ];
-      const newIcon = parsed ? detectFrameworkIcon(parsed) : current.icon;
-
-      current.commands = newCommands;
-      current.environmentProfiles = mergedProfiles;
-      current.icon = newIcon;
-      current.defaultEnvironmentProfileId =
-        mergedProfiles[0]?.id || current.defaultEnvironmentProfileId;
-      current.updatedAt = new Date().toISOString();
-    }
-
-    const projectData = validateProjectInput(current);
-    await assertUniqueProjectPath(projectData.path, current.id);
-    const updatedProject = {
-      ...current,
-      ...projectData,
-      id: current.id,
-      createdAt: current.createdAt,
-      updatedAt: new Date().toISOString(),
-    };
-
-    projects[index] = updatedProject;
-    await saveProjects(projects);
-    return updatedProject;
-  });
-
-  ipcMain.handle("projects:delete", async (_event, payload) => {
-    const projectId = String(payload?.projectId ?? "").trim();
-
-    if (!projectId) {
-      throw new Error("Debes indicar el proyecto a eliminar.");
-    }
-
-    const projects = await readProjects();
-    const exists = projects.some((item) => item.id === projectId);
-
-    if (!exists) {
-      throw new Error("Proyecto no encontrado para eliminar.");
-    }
-
-    const sequenceController = runningSequences.get(projectId);
-    const runningChild =
-      runningProcesses.get(projectId) || sequenceController?.child;
-    if (runningChild) {
-      if (sequenceController) {
-        sequenceController.canceled = true;
-      }
-
-      await terminateChildProcess(runningChild);
-      runningProcesses.delete(projectId);
-    }
-
-    const filteredProjects = projects.filter((item) => item.id !== projectId);
-    await saveProjects(filteredProjects);
-
-    broadcastRunUpdate({
-      projectId,
-      status: "deleted",
-      message: "Proyecto eliminado.",
-    });
-
-    return {
-      projectId,
-      deleted: true,
-    };
-  });
-
-  ipcMain.handle("projects:toggle-favorite", async (_event, payload) => {
-    const projectId = String(payload?.projectId ?? "").trim();
-
-    if (!projectId) {
-      throw new Error("Debes indicar el proyecto a marcar como favorito.");
-    }
-
-    const projects = await readProjects();
-    const index = projects.findIndex((item) => item.id === projectId);
-
-    if (index < 0) {
-      throw new Error("Proyecto no encontrado para favorito.");
-    }
-
-    const current = projects[index];
-    const updated = {
-      ...current,
-      favorite: !Boolean(current.favorite),
-      updatedAt: new Date().toISOString(),
-    };
-
-    projects[index] = updated;
-    await saveProjects(projects);
-
-    return {
-      projectId,
-      favorite: updated.favorite,
-    };
-  });
-
-  ipcMain.handle("projects:auto-detect-scan", async () =>
-    autoDetectScanProjects(),
-  );
-
-  ipcMain.handle("projects:auto-detect-apply", async (_event, payload) => {
-    return autoDetectApplyProjects(payload?.projects);
-  });
-
-  ipcMain.handle("projects:clear-all", async () => {
-    const projects = await readProjects();
-
-    await Promise.all(
-      projects.map((project) => stopProjectCommand(project.id)),
-    );
-
-    for (const project of projects) {
-      broadcastRunUpdate({
-        projectId: project.id,
-        status: "deleted",
-        message: "Proyecto eliminado.",
-      });
-    }
-
-    await saveProjects([]);
-
-    return {
-      cleared: true,
-      deletedCount: projects.length,
-    };
-  });
-
-  ipcMain.handle("projects:git-status", async (_event, payload) => {
-    const projectId = String(payload?.projectId ?? "").trim();
-
-    if (!projectId) {
-      throw new Error("Debes indicar el proyecto para consultar Git.");
-    }
-
-    return getGitStatusForProject(projectId);
-  });
-
-  ipcMain.handle("projects:run", async (_event, payload) => {
-    const projectId = String(payload?.projectId ?? "").trim();
-    const command = String(payload?.command ?? "").trim();
-    const profileIds = Array.isArray(payload?.profileIds)
-      ? payload.profileIds.map((id) => String(id ?? '').trim()).filter(Boolean)
-      : [];
-
-    if (!projectId || !command) {
-      throw new Error("Proyecto y comando son obligatorios.");
-    }
-
-    const processKey = `${projectId}:${Date.now().toString(36)}`;
-    return runProjectCommand(projectId, command, profileIds, processKey);
-  });
-
-  ipcMain.handle("projects:run-all", async (_event, payload) => {
-    const projectId = String(payload?.projectId ?? "").trim();
-    const profileIds = Array.isArray(payload?.profileIds)
-      ? payload.profileIds.map((id) => String(id ?? '').trim()).filter(Boolean)
-      : [];
-
-    if (!projectId) {
-      throw new Error("Debes indicar el proyecto a ejecutar.");
-    }
-
-    return runProjectCommandSequence(projectId, profileIds);
-  });
-
-  ipcMain.handle("projects:stop", async (_event, payload) => {
-    const projectId = String(payload?.projectId ?? "").trim();
-    const processKey = String(payload?.processKey ?? "").trim();
-    const command = String(payload?.command ?? "").trim();
-
-    if (!projectId && !processKey) {
-      throw new Error("Debes indicar el proyecto o proceso a detener.");
-    }
-
-    return stopProjectCommand({ projectId, processKey, command });
-  });
-
-  ipcMain.handle("projects:running", async () => {
-    const running = [];
-    for (const [key, child] of runningProcesses.entries()) {
-      const [projectId, timestamp] = key.split(":");
-      running.push({ processKey: key, projectId, pid: child.pid, timestamp });
-    }
-    return running;
-  });
-  ipcMain.handle("projects:export", async () => exportProjectsToFile());
-  ipcMain.handle("projects:import", async () => importProjectsFromFile());
-
-  ipcMain.handle("terminal:create", async (_event, payload) =>
-    createTerminalSession(payload),
-  );
-  ipcMain.handle("terminal:open-external", async (_event, payload) =>
-    openExternalTerminalSession(payload),
-  );
-  ipcMain.handle("terminal:write", async (_event, payload) =>
-    writeToTerminalSession(payload),
-  );
-  ipcMain.handle("terminal:resize", async (_event, payload) =>
-    resizeTerminalSession(payload),
-  );
-  ipcMain.handle("terminal:clear", async (_event, payload) =>
-    clearTerminalSession(payload),
-  );
-  ipcMain.handle("terminal:close", async (_event, payload) =>
-    closeTerminalSession(payload),
-  );
-
-  ipcMain.handle("dialog:pick-directory", async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ["openDirectory"],
-    });
-
-    if (result.canceled || result.filePaths.length === 0) {
-      return "";
-    }
-
-    return result.filePaths[0];
-  });
-
-  ipcMain.handle("dialog:pick-icon", async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ["openFile"],
-      filters: [
-        { name: "Images", extensions: ["png", "jpg", "jpeg", "svg", "ico"] },
-      ],
-    });
-
-    return result.canceled ? null : result.filePaths[0];
-  });
-
-  ipcMain.handle("projects:open-folder", async (_event, payload) => {
-    const projectId = String(payload?.projectId ?? "").trim();
-
-    if (!projectId) {
-      throw new Error("Debes indicar el proyecto.");
-    }
-
-    const projects = await readProjects();
-    const project = projects.find((item) => item.id === projectId);
-
-    if (!project) {
-      throw new Error("Proyecto no encontrado.");
-    }
-
-    await shell.openPath(project.path);
-    return { opened: true };
-  });
-
-  ipcMain.handle("history:list", async () => readHistory());
-
-  ipcMain.handle("history:save", async (_event, payload) => {
-    const history = Array.isArray(payload?.history) ? payload.history : [];
-    await saveHistory(history);
-    return { saved: true, count: history.length };
-  });
-
-  ipcMain.handle("shell:open-external", async (_event, payload) => {
-    const url = String(payload?.url ?? "").trim();
-    if (!url) return { opened: false };
-    await shell.openExternal(url);
-    return { opened: true };
-  });
-};
-
 const createWindow = () => {
   const win = new BrowserWindow({
     width: 1200,
@@ -1947,7 +1300,50 @@ const createWindow = () => {
 };
 
 app.whenReady().then(() => {
-  registerIpcHandlers();
+  processManager = createProcessManager({
+    showNotification: showProcessNotification,
+    broadcastRunUpdate,
+    runningProcesses,
+    activeCommands,
+    runningSequences,
+    getProjectById,
+    resolveRuntimeEnvironmentForRun,
+    isWindows,
+  });
+
+  registerIpcHandlers({
+    dialog,
+    shell,
+    processManager,
+    readProjects,
+    readHistory,
+    saveHistory,
+    readGlobalTags,
+    saveGlobalTags,
+    saveProjects,
+    assertUniqueProjectPath,
+    validateProjectInput,
+    normalizeProjectTags,
+    autoDetectScanProjects,
+    autoDetectApplyProjects,
+    detectEnvironmentProfilesFromProject,
+    guessCommandsFromPackageJson,
+    detectFrameworkIcon,
+    getGitStatusForProject,
+    exportProjectsToFile,
+    importProjectsFromFile,
+    broadcastRunUpdate,
+    runningProcesses,
+    getProjectById,
+    createTerminalSession,
+    openExternalTerminalSession,
+    writeToTerminalSession,
+    resizeTerminalSession,
+    clearTerminalSession,
+    closeTerminalSession,
+    toPathKey,
+  });
+
   createWindow();
 
   app.on("activate", () => {
@@ -1964,13 +1360,14 @@ app.on("window-all-closed", () => {
 });
 
 app.on("before-quit", () => {
-  runningProcesses.forEach((child) => {
-    terminateChildProcessSync(child);
-  });
-  runningProcesses.clear();
+  if (processManager) {
+    processManager.cleanupAllProcesses();
+  }
 
   terminalSessions.forEach((child) => {
-    terminateChildProcessSync(child);
+    if (processManager) {
+      processManager.terminateChildProcessSync(child);
+    }
   });
   terminalSessions.clear();
 });
